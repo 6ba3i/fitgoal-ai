@@ -1,0 +1,296 @@
+/* Profile Container */
+.profile-container {
+  padding-top: 2rem;
+  padding-bottom: 2rem;
+  max-width: 1200px;
+}
+
+.profile-header {
+  margin-bottom: 2rem;
+}
+
+/* Profile Tabs */
+.profile-tabs {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 2rem;
+}
+
+.tab-button {
+  padding: 12px 24px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+}
+
+.tab-button:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+}
+
+.tab-button.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-color: transparent;
+}
+
+/* Profile Section Header */
+.profile-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.edit-button,
+.save-button,
+.cancel-button {
+  padding: 8px 20px;
+  font-size: 14px;
+}
+
+.save-button {
+  background: linear-gradient(135deg, #48c774 0%, #3ec46d 100%) !important;
+}
+
+.cancel-button {
+  background: rgba(241, 70, 104, 0.2) !important;
+  border: 1px solid rgba(241, 70, 104, 0.3) !important;
+}
+
+/* BMI Display */
+.bmi-display {
+  padding: 1.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+}
+
+.bmi-card {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+.bmi-value {
+  font-size: 3rem;
+  font-weight: 700;
+  color: white;
+}
+
+.bmi-category {
+  font-size: 1.25rem;
+  font-weight: 500;
+}
+
+/* Macro Cards for Profile */
+.macro-card-profile {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 1.5rem;
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+.macro-card-profile:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-5px);
+}
+
+.macro-icon {
+  width: 60px;
+  height: 60px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1rem;
+  font-size: 24px;
+  color: white;
+}
+
+.macro-icon.protein {
+  background: linear-gradient(135deg, #48c774 0%, #3ec46d 100%);
+}
+
+.macro-icon.carbs {
+  background: linear-gradient(135deg, #ffdd57 0%, #ffc107 100%);
+}
+
+.macro-icon.fat {
+  background: linear-gradient(135deg, #f14668 0%, #ee5a6f 100%);
+}
+
+.macro-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: white;
+  margin-bottom: 0.5rem;
+}
+
+.macro-label {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+/* Security Section */
+.security-section {
+  padding: 1.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  margin-bottom: 2rem;
+}
+
+.danger-zone {
+  padding: 1.5rem;
+  background: rgba(241, 70, 104, 0.1);
+  border: 1px solid rgba(241, 70, 104, 0.3);
+  border-radius: 12px;
+}
+
+.danger-button {
+  background: linear-gradient(135deg, #f14668 0%, #ee5a6f 100%) !important;
+}
+
+.danger-button:hover {
+  box-shadow: 0 6px 20px 0 rgba(241, 70, 104, 0.4) !important;
+}
+
+/* Stat Cards for Profile */
+.stat-card-profile {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  transition: all 0.3s ease;
+  height: 100%;
+}
+
+.stat-card-profile:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-5px);
+}
+
+.stat-icon {
+  width: 60px;
+  height: 60px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  color: white;
+  flex-shrink: 0;
+}
+
+.stat-content {
+  flex: 1;
+}
+
+.stat-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: white;
+  margin-bottom: 0.25rem;
+}
+
+.stat-label {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.875rem;
+}
+
+/* Achievements */
+.achievement-section {
+  padding: 1.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+}
+
+.achievements-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 1rem;
+}
+
+.achievement-badge {
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid rgba(102, 126, 234, 0.5);
+  border-radius: 12px;
+  padding: 1rem;
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+.achievement-badge:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: scale(1.05);
+}
+
+.achievement-badge.gold {
+  border-color: #ffc107;
+  background: rgba(255, 193, 7, 0.1);
+}
+
+.achievement-badge i {
+  font-size: 2rem;
+  color: #667eea;
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.achievement-badge.gold i {
+  color: #ffc107;
+}
+
+.achievement-badge span {
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+/* Form Overrides for Profile */
+.profile-container .form-control:disabled,
+.profile-container .form-select:disabled {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.7);
+  cursor: not-allowed;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .profile-tabs {
+    flex-direction: column;
+  }
+  
+  .tab-button {
+    width: 100%;
+    justify-content: center;
+  }
+  
+  .bmi-card {
+    flex-direction: column;
+    text-align: center;
+    gap: 1rem;
+  }
+  
+  .profile-section-header {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: stretch;
+  }
+  
+  .achievements-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+}

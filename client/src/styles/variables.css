@@ -1,0 +1,252 @@
+/* CSS Variables for FitGoal AI Application */
+
+:root {
+  /* Primary Colors */
+  --primary-color: #667eea;
+  --primary-light: #764ba2;
+  --primary-dark: #4c63d2;
+  --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  
+  /* Secondary Colors */
+  --secondary-color: #f093fb;
+  --secondary-light: #f5576c;
+  --secondary-dark: #c471ed;
+  --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  
+  /* Accent Colors */
+  --accent-color: #4facfe;
+  --accent-light: #00f2fe;
+  --accent-dark: #0052d4;
+  --accent-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  
+  /* Success/Error Colors */
+  --success-color: #00d4aa;
+  --success-light: #5deca0;
+  --error-color: #ff6b6b;
+  --error-light: #ff8e88;
+  --warning-color: #feca57;
+  --info-color: #48dbfb;
+  
+  /* Neutral Colors */
+  --white: #ffffff;
+  --black: #000000;
+  --gray-50: #f9fafb;
+  --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb;
+  --gray-300: #d1d5db;
+  --gray-400: #9ca3af;
+  --gray-500: #6b7280;
+  --gray-600: #4b5563;
+  --gray-700: #374151;
+  --gray-800: #1f2937;
+  --gray-900: #111827;
+  
+  /* Background Colors */
+  --bg-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --bg-secondary: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  --bg-accent: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  --bg-dark: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
+  --bg-light: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  
+  /* Glass Morphism Colors */
+  --glass-bg: rgba(255, 255, 255, 0.15);
+  --glass-border: rgba(255, 255, 255, 0.2);
+  --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+  --glass-blur: blur(8px);
+  
+  --glass-dark-bg: rgba(0, 0, 0, 0.15);
+  --glass-dark-border: rgba(255, 255, 255, 0.1);
+  --glass-dark-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  
+  /* Typography */
+  --font-primary: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  --font-secondary: 'Poppins', 'Arial', sans-serif;
+  --font-mono: 'Fira Code', 'Monaco', 'Cascadia Code', monospace;
+  
+  /* Font Sizes */
+  --text-xs: 0.75rem;     /* 12px */
+  --text-sm: 0.875rem;    /* 14px */
+  --text-base: 1rem;      /* 16px */
+  --text-lg: 1.125rem;    /* 18px */
+  --text-xl: 1.25rem;     /* 20px */
+  --text-2xl: 1.5rem;     /* 24px */
+  --text-3xl: 1.875rem;   /* 30px */
+  --text-4xl: 2.25rem;    /* 36px */
+  --text-5xl: 3rem;       /* 48px */
+  --text-6xl: 3.75rem;    /* 60px */
+  
+  /* Font Weights */
+  --font-thin: 100;
+  --font-light: 300;
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+  --font-extrabold: 800;
+  --font-black: 900;
+  
+  /* Line Heights */
+  --leading-tight: 1.25;
+  --leading-snug: 1.375;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+  --leading-loose: 2;
+  
+  /* Spacing */
+  --space-0: 0;
+  --space-1: 0.25rem;     /* 4px */
+  --space-2: 0.5rem;      /* 8px */
+  --space-3: 0.75rem;     /* 12px */
+  --space-4: 1rem;        /* 16px */
+  --space-5: 1.25rem;     /* 20px */
+  --space-6: 1.5rem;      /* 24px */
+  --space-8: 2rem;        /* 32px */
+  --space-10: 2.5rem;     /* 40px */
+  --space-12: 3rem;       /* 48px */
+  --space-16: 4rem;       /* 64px */
+  --space-20: 5rem;       /* 80px */
+  --space-24: 6rem;       /* 96px */
+  --space-32: 8rem;       /* 128px */
+  
+  /* Border Radius */
+  --radius-none: 0;
+  --radius-sm: 0.125rem;   /* 2px */
+  --radius-base: 0.25rem;  /* 4px */
+  --radius-md: 0.375rem;   /* 6px */
+  --radius-lg: 0.5rem;     /* 8px */
+  --radius-xl: 0.75rem;    /* 12px */
+  --radius-2xl: 1rem;      /* 16px */
+  --radius-3xl: 1.5rem;    /* 24px */
+  --radius-full: 9999px;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-base: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  --shadow-inner: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+  --shadow-none: 0 0 #0000;
+  
+  /* Transitions */
+  --transition-fast: 0.15s ease-in-out;
+  --transition-normal: 0.3s ease-in-out;
+  --transition-slow: 0.5s ease-in-out;
+  
+  /* Z-Index */
+  --z-negative: -1;
+  --z-0: 0;
+  --z-10: 10;
+  --z-20: 20;
+  --z-30: 30;
+  --z-40: 40;
+  --z-50: 50;
+  --z-modal: 1000;
+  --z-popover: 1010;
+  --z-tooltip: 1020;
+  --z-dropdown: 1030;
+  --z-overlay: 1040;
+  --z-max: 9999;
+  
+  /* Container Widths */
+  --container-sm: 640px;
+  --container-md: 768px;
+  --container-lg: 1024px;
+  --container-xl: 1280px;
+  --container-2xl: 1536px;
+  
+  /* Breakpoints */
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+  --breakpoint-2xl: 1536px;
+  
+  /* Animation Timing */
+  --ease-linear: cubic-bezier(0, 0, 1, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* Custom Properties for FitGoal AI */
+  --dashboard-bg: var(--bg-primary);
+  --card-bg: var(--glass-bg);
+  --card-border: var(--glass-border);
+  --card-shadow: var(--glass-shadow);
+  --text-primary: var(--gray-900);
+  --text-secondary: var(--gray-600);
+  --text-muted: var(--gray-400);
+  
+  /* Component Specific */
+  --navbar-height: 64px;
+  --sidebar-width: 280px;
+  --sidebar-collapsed-width: 80px;
+  --footer-height: 120px;
+  
+  /* Form Elements */
+  --input-bg: rgba(255, 255, 255, 0.1);
+  --input-border: rgba(255, 255, 255, 0.2);
+  --input-focus-border: var(--primary-color);
+  --input-placeholder: rgba(255, 255, 255, 0.6);
+  
+  /* Button Variants */
+  --btn-primary-bg: var(--primary-gradient);
+  --btn-secondary-bg: var(--secondary-gradient);
+  --btn-accent-bg: var(--accent-gradient);
+  --btn-success-bg: linear-gradient(135deg, var(--success-color) 0%, var(--success-light) 100%);
+  --btn-error-bg: linear-gradient(135deg, var(--error-color) 0%, var(--error-light) 100%);
+  
+  /* Chart Colors */
+  --chart-primary: var(--primary-color);
+  --chart-secondary: var(--secondary-color);
+  --chart-accent: var(--accent-color);
+  --chart-success: var(--success-color);
+  --chart-warning: var(--warning-color);
+  --chart-error: var(--error-color);
+  --chart-info: var(--info-color);
+  
+  /* Loading Animation */
+  --loading-primary: var(--primary-color);
+  --loading-secondary: var(--accent-color);
+  
+  /* Health Status Colors */
+  --health-excellent: #00d4aa;
+  --health-good: #5deca0;
+  --health-fair: #feca57;
+  --health-poor: #ff6b6b;
+  --health-critical: #ff3838;
+}
+
+/* Dark Mode Variables */
+[data-theme="dark"] {
+  --text-primary: var(--gray-100);
+  --text-secondary: var(--gray-300);
+  --text-muted: var(--gray-500);
+  --card-bg: var(--glass-dark-bg);
+  --card-border: var(--glass-dark-border);
+  --card-shadow: var(--glass-dark-shadow);
+  --input-bg: rgba(0, 0, 0, 0.2);
+  --input-border: rgba(255, 255, 255, 0.1);
+  --input-placeholder: rgba(255, 255, 255, 0.4);
+}
+
+/* High Contrast Mode Variables */
+[data-theme="high-contrast"] {
+  --primary-color: #000000;
+  --secondary-color: #ffffff;
+  --text-primary: #000000;
+  --text-secondary: #333333;
+  --card-bg: #ffffff;
+  --card-border: #000000;
+  --card-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Reduced Motion Variables */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --transition-fast: 0ms;
+    --transition-normal: 0ms;
+    --transition-slow: 0ms;
+  }
+}
