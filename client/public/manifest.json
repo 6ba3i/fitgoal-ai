@@ -1,0 +1,56 @@
+{
+  "short_name": "FitGoal AI",
+  "name": "FitGoal AI - AI-Powered Fitness Goal Planning",
+  "description": "Track your fitness journey with AI-powered predictions, personalized meal recommendations, and progress monitoring.",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "logo192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "logo512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#667eea",
+  "background_color": "#764ba2",
+  "orientation": "portrait",
+  "categories": ["health", "fitness", "lifestyle"],
+  "screenshots": [
+    {
+      "src": "screenshot1.png",
+      "type": "image/png",
+      "sizes": "1280x720"
+    },
+    {
+      "src": "screenshot2.png",
+      "type": "image/png",
+      "sizes": "1280x720"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Log Weight",
+      "short_name": "Weight",
+      "description": "Quick access to log your weight",
+      "url": "/progress",
+      "icons": [{ "src": "weight-icon.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Find Recipes",
+      "short_name": "Recipes",
+      "description": "Browse healthy recipes",
+      "url": "/recipes",
+      "icons": [{ "src": "recipe-icon.png", "sizes": "96x96" }]
+    }
+  ]
+}

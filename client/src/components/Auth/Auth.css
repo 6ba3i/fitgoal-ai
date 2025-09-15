@@ -1,0 +1,180 @@
+/* Auth Container Styles */
+.auth-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.auth-wrapper {
+  width: 100%;
+  max-width: 1200px;
+}
+
+.auth-card {
+  max-width: 500px;
+  margin: 0 auto;
+  padding: 3rem;
+}
+
+/* Glass Input Override for Auth */
+.auth-card .glass-input {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 12px 20px;
+  font-size: 16px;
+}
+
+.auth-card .glass-input:focus {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+}
+
+/* Divider */
+.divider {
+  position: relative;
+  text-align: center;
+  margin: 2rem 0;
+}
+
+.divider::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.divider-text {
+  position: relative;
+  display: inline-block;
+  padding: 0 1rem;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.7);
+  border-radius: 20px;
+  font-size: 14px;
+}
+
+/* Google Button */
+.google-button {
+  background: linear-gradient(135deg, #EA4335 0%, #FBBC04 100%) !important;
+  border: none;
+  transition: all 0.3s ease;
+}
+
+.google-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px 0 rgba(234, 67, 53, 0.4) !important;
+}
+
+/* Features Section */
+.features-section {
+  margin-top: 3rem;
+}
+
+.feature-icon {
+  display: inline-block;
+  padding: 1.5rem;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  margin-bottom: 1rem;
+  transition: all 0.3s ease;
+}
+
+.feature-icon:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: translateY(-5px);
+}
+
+/* Registration Form Extras */
+.form-row {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.form-row .form-group {
+  flex: 1;
+}
+
+/* Password Strength Indicator */
+.password-strength {
+  height: 4px;
+  border-radius: 2px;
+  margin-top: 0.5rem;
+  transition: all 0.3s ease;
+}
+
+.password-strength.weak {
+  background: #f14668;
+  width: 33%;
+}
+
+.password-strength.medium {
+  background: #ffdd57;
+  width: 66%;
+}
+
+.password-strength.strong {
+  background: #48c774;
+  width: 100%;
+}
+
+/* Form Validation */
+.is-invalid {
+  border-color: #f14668 !important;
+}
+
+.invalid-feedback {
+  color: #f14668;
+  font-size: 0.875rem;
+  margin-top: 0.25rem;
+}
+
+.is-valid {
+  border-color: #48c774 !important;
+}
+
+.valid-feedback {
+  color: #48c774;
+  font-size: 0.875rem;
+  margin-top: 0.25rem;
+}
+
+/* Loading State */
+.auth-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+}
+
+.auth-loading .spinner-border {
+  width: 3rem;
+  height: 3rem;
+  border-width: 0.3rem;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .auth-card {
+    padding: 2rem;
+  }
+  
+  .form-row {
+    flex-direction: column;
+    gap: 0;
+  }
+  
+  .features-section {
+    margin-top: 2rem;
+  }
+}
