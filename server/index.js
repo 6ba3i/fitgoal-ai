@@ -22,9 +22,6 @@ const PORT = process.env.PORT || 5000;
 // Connect to MongoDB
 connectDB();
 
-// Initialize Firebase Admin
-firebaseAdmin.initializeApp();
-
 // Middleware
 app.use(helmet());
 app.use(cors());

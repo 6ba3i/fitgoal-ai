@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+// client/src/App.js
+import React from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import 'bootstrap/dist/css/bootstrap.min.css';
@@ -17,35 +18,14 @@ import Progress from './components/Progress/Progress';
 import Profile from './components/Profile/Profile';
 
 // Context
-import { AuthProvider } from './context/AuthContext';
+import { AuthContext } from './context/AuthContext';
 import { UserProvider } from './context/UserContext';
+import { useContext } from 'react';
 
-// Services
-import { authService } from './services/auth.service';
-
-function App() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    checkAuth();
-  }, []);
-
-  const checkAuth = async () => {
-    try {
-      const token = localStorage.getItem('authToken');
-      if (token) {
-        const userData = await authService.verifyToken();
-        setUser(userData);
-      }
-    } catch (error) {
-      console.error('Auth check failed:', error);
-      localStorage.removeItem('authToken');
-    } finally {
-      setLoading(false);
-    }
-  };
-
+// Protected Route Component
+const ProtectedRoute = ({ children }) => {
+  const { user, loading } = useContext(AuthContext);
+  
   if (loading) {
     return (
       <div className="loading-container">
@@ -55,39 +35,86 @@ function App() {
       </div>
     );
   }
+  
+  return user ? children : <Navigate to="/login" />;
+};
+
+// Public Route Component (redirects to dashboard if logged in)
+const PublicRoute = ({ children }) => {
+  const { user, loading } = useContext(AuthContext);
+  
+  if (loading) {
+    return (
+      <div className="loading-container">
+        <div className="spinner-border text-primary" role="status">
+          <span className="visually-hidden">Loading...</span>
+        </div>
+      </div>
+    );
+  }
+  
+  return !user ? children : <Navigate to="/dashboard" />;
+};
+
+function App() {
+  const { user } = useContext(AuthContext);
 
   return (
-    <AuthProvider value={{ user, setUser }}>
-      <UserProvider>
-        <Router>
-          <div className="App">
-            {user && <Navigation />}
-            <Routes>
-              <Route path="/login" element={!user ? <Login /> : <Navigate to="/dashboard" />} />
-              <Route path="/register" element={!user ? <Register /> : <Navigate to="/dashboard" />} />
-              <Route path="/dashboard" element={user ? <Dashboard /> : <Navigate to="/login" />} />
-              <Route path="/goals" element={user ? <Goals /> : <Navigate to="/login" />} />
-              <Route path="/recipes" element={user ? <Recipes /> : <Navigate to="/login" />} />
-              <Route path="/progress" element={user ? <Progress /> : <Navigate to="/login" />} />
-              <Route path="/profile" element={user ? <Profile /> : <Navigate to="/login" />} />
-              <Route path="/" element={<Navigate to={user ? "/dashboard" : "/login"} />} />
-            </Routes>
-            <ToastContainer
-              position="bottom-right"
-              autoClose={3000}
-              hideProgressBar={false}
-              newestOnTop
-              closeOnClick
-              rtl={false}
-              pauseOnFocusLoss
-              draggable
-              pauseOnHover
-              theme="dark"
-            />
-          </div>
-        </Router>
-      </UserProvider>
-    </AuthProvider>
+    <UserProvider>
+      <div className="App">
+        {user && <Navigation />}
+        <Routes>
+          <Route path="/login" element={
+            <PublicRoute>
+              <Login />
+            </PublicRoute>
+          } />
+          <Route path="/register" element={
+            <PublicRoute>
+              <Register />
+            </PublicRoute>
+          } />
+          <Route path="/dashboard" element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          } />
+          <Route path="/goals" element={
+            <ProtectedRoute>
+              <Goals />
+            </ProtectedRoute>
+          } />
+          <Route path="/recipes" element={
+            <ProtectedRoute>
+              <Recipes />
+            </ProtectedRoute>
+          } />
+          <Route path="/progress" element={
+            <ProtectedRoute>
+              <Progress />
+            </ProtectedRoute>
+          } />
+          <Route path="/profile" element={
+            <ProtectedRoute>
+              <Profile />
+            </ProtectedRoute>
+          } />
+          <Route path="/" element={<Navigate to={user ? "/dashboard" : "/login"} />} />
+        </Routes>
+        <ToastContainer
+          position="bottom-right"
+          autoClose={3000}
+          hideProgressBar={false}
+          newestOnTop
+          closeOnClick
+          rtl={false}
+          pauseOnFocusLoss
+          draggable
+          pauseOnHover
+          theme="dark"
+        />
+      </div>
+    </UserProvider>
   );
 }
 
