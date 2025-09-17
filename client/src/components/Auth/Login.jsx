@@ -1,13 +1,10 @@
+// client/src/components/Auth/Login.jsx
 import React, { useState, useContext } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { AuthContext } from '../../context/AuthContext';
-import { authService } from '../../services/auth.service';
+import { firebaseAuthService } from '../../services/firebase.auth.service';
 import './Auth.css';
-
-// Firebase imports
-import { auth, googleProvider } from '../../config/firebase';
-import { signInWithPopup } from 'firebase/auth';
 
 const Login = () => {
   const [formData, setFormData] = useState({
@@ -30,16 +27,18 @@ const Login = () => {
     setLoading(true);
 
     try {
-      const response = await authService.login(formData.email, formData.password);
+      const response = await firebaseAuthService.login(formData.email, formData.password);
       
       if (response.success) {
-        localStorage.setItem('authToken', response.token);
         setUser(response.user);
         toast.success('Login successful!');
         navigate('/dashboard');
+      } else {
+        toast.error(response.error || 'Login failed');
       }
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Login failed');
+      toast.error('An unexpected error occurred');
+      console.error('Login error:', error);
     } finally {
       setLoading(false);
     }
@@ -49,19 +48,17 @@ const Login = () => {
     setLoading(true);
     
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const idToken = await result.user.getIdToken();
-      
-      const response = await authService.googleAuth(idToken);
+      const response = await firebaseAuthService.googleSignIn();
       
       if (response.success) {
-        localStorage.setItem('authToken', response.token);
         setUser(response.user);
         toast.success('Google login successful!');
         navigate('/dashboard');
+      } else {
+        toast.error(response.error || 'Google login failed');
       }
     } catch (error) {
-      toast.error('Google login failed');
+      toast.error('An unexpected error occurred');
       console.error('Google login error:', error);
     } finally {
       setLoading(false);
@@ -70,107 +67,75 @@ const Login = () => {
 
   return (
     <div className="auth-container">
-      <div className="auth-wrapper">
-        <div className="glass-container auth-card">
-          <div className="text-center mb-4">
-            <h1 className="gradient-text display-4 fw-bold">FitGoal AI</h1>
-            <p className="text-white">Your AI-Powered Fitness Journey</p>
-          </div>
-
-          <h2 className="text-white text-center mb-4">Welcome Back</h2>
-
-          <form onSubmit={handleSubmit}>
-            <div className="mb-3">
-              <label className="form-label">Email</label>
-              <input
-                type="email"
-                className="form-control glass-input"
-                name="email"
-                value={formData.email}
-                onChange={handleChange}
-                placeholder="Enter your email"
-                required
-              />
-            </div>
-
-            <div className="mb-3">
-              <label className="form-label">Password</label>
-              <input
-                type="password"
-                className="form-control glass-input"
-                name="password"
-                value={formData.password}
-                onChange={handleChange}
-                placeholder="Enter your password"
-                required
-              />
-            </div>
-
-            <div className="mb-3 text-end">
-              <Link to="/forgot-password" className="text-white-50 text-decoration-none">
-                Forgot Password?
-              </Link>
-            </div>
-
-            <button
-              type="submit"
-              className="glass-button w-100 mb-3"
-              disabled={loading}
-            >
-              {loading ? (
-                <span className="spinner-border spinner-border-sm me-2" />
-              ) : null}
-              Sign In
-            </button>
-          </form>
-
-          <div className="divider">
-            <span className="divider-text">OR</span>
-          </div>
-
-          <button
-            onClick={handleGoogleLogin}
-            className="glass-button google-button w-100 mb-3"
-            disabled={loading}
-          >
-            <i className="fab fa-google me-2"></i>
-            Sign in with Google
-          </button>
-
-          <div className="text-center mt-4">
-            <p className="text-white-50">
-              Don't have an account?{' '}
-              <Link to="/register" className="text-white text-decoration-none fw-bold">
-                Sign Up
-              </Link>
-            </p>
-          </div>
+      <div className="auth-card glass-card">
+        <div className="auth-header">
+          <h2 className="auth-title gradient-text">Welcome Back</h2>
+          <p className="auth-subtitle">Sign in to track your fitness journey</p>
         </div>
 
-        <div className="features-section mt-5">
-          <div className="row">
-            <div className="col-md-4 text-center mb-3">
-              <div className="feature-icon">
-                <i className="fas fa-brain fa-3x text-white mb-3"></i>
-              </div>
-              <h5 className="text-white">AI-Powered</h5>
-              <p className="text-white-50">Smart predictions and personalized recommendations</p>
-            </div>
-            <div className="col-md-4 text-center mb-3">
-              <div className="feature-icon">
-                <i className="fas fa-chart-line fa-3x text-white mb-3"></i>
-              </div>
-              <h5 className="text-white">Track Progress</h5>
-              <p className="text-white-50">Monitor your fitness journey with detailed analytics</p>
-            </div>
-            <div className="col-md-4 text-center mb-3">
-              <div className="feature-icon">
-                <i className="fas fa-utensils fa-3x text-white mb-3"></i>
-              </div>
-              <h5 className="text-white">Smart Recipes</h5>
-              <p className="text-white-50">Get personalized meal recommendations</p>
-            </div>
+        <form onSubmit={handleSubmit} className="auth-form">
+          <div className="form-group">
+            <label htmlFor="email">Email</label>
+            <input
+              type="email"
+              id="email"
+              name="email"
+              value={formData.email}
+              onChange={handleChange}
+              className="form-control glass-input"
+              placeholder="Enter your email"
+              required
+            />
           </div>
+
+          <div className="form-group">
+            <label htmlFor="password">Password</label>
+            <input
+              type="password"
+              id="password"
+              name="password"
+              value={formData.password}
+              onChange={handleChange}
+              className="form-control glass-input"
+              placeholder="Enter your password"
+              required
+            />
+          </div>
+
+          <button 
+            type="submit" 
+            className="btn btn-primary btn-block"
+            disabled={loading}
+          >
+            {loading ? 'Signing in...' : 'Sign In'}
+          </button>
+        </form>
+
+        <div className="auth-divider">
+          <span>OR</span>
+        </div>
+
+        <button 
+          onClick={handleGoogleLogin}
+          className="btn btn-google btn-block"
+          disabled={loading}
+        >
+          <img 
+            src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" 
+            alt="Google"
+            className="google-icon"
+          />
+          Continue with Google
+        </button>
+
+        <div className="auth-footer">
+          <p>
+            Don't have an account? 
+            <Link to="/register" className="auth-link"> Sign Up</Link>
+          </p>
+          <Link to="/forgot-password" className="auth-link">
+            Forgot Password?
+          </Link>
         </div>
       </div>
     </div>
