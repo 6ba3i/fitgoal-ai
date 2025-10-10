@@ -1,6 +1,4 @@
-const User = require('../models/User');
-const Progress = require('../models/Progress');
-const Goal = require('../models/Goal');
+const firebaseService = require('../services/firebase.service');
 const LinearRegressionService = require('../services/ai/linearRegression');
 const KMeansService = require('../services/ai/kMeans');
 const PredictionsService = require('../services/ai/predictions');
@@ -11,8 +9,14 @@ class AIController {
       const userId = req.user.id;
       const { daysAhead = 30 } = req.body;
 
-      // Get user's progress data
-      const progressData = await Progress.getUserProgress(userId, 90);
+      // Get user's progress data from Firestore
+      const progressData = await firebaseService.queryFirestore(
+        'progress', 
+        'userId', 
+        '==', 
+        userId,
+        90
+      );
 
       if (progressData.length < 2) {
         return res.status(400).json({
@@ -21,9 +25,12 @@ class AIController {
         });
       }
 
+      // Sort by date (most recent first)
+      const sortedData = progressData.sort((a, b) => new Date(b.date) - new Date(a.date));
+
       // Generate predictions
       const predictions = LinearRegressionService.predictWeight(
-        progressData,
+        sortedData,
         daysAhead
       );
 
@@ -44,24 +51,35 @@ class AIController {
   async recommendCalories(req, res) {
     try {
       const userId = req.user.id;
-      const user = await User.findById(userId);
+      
+      // Get user profile from Firestore
+      const userProfile = await firebaseService.getFromFirestore('users', userId);
+      
+      if (!userProfile) {
+        return res.status(404).json({
+          success: false,
+          message: 'User profile not found'
+        });
+      }
+
+      const user = userProfile.profile;
 
       // Calculate calorie deficit/surplus needed
       const recommendation = LinearRegressionService.calculateCalorieDeficit(
-        user.profile.weight,
-        user.profile.targetWeight,
-        user.profile.targetDate
+        user.weight,
+        user.targetWeight,
+        user.targetDate
       );
 
       // Get current macros
-      const currentMacros = user.calculateMacros();
+      const currentMacros = this.calculateMacros(user);
 
       // Adjust based on recommendation
       const adjustedCalories = currentMacros.calories + recommendation.dailyDeficit;
       
       const adjustedMacros = {
         calories: Math.max(1200, Math.min(4000, adjustedCalories)), // Safety limits
-        protein: Math.round(user.profile.weight * 2.2 * 0.8),
+        protein: Math.round(user.weight * 2.2 * 0.8),
         carbs: Math.round(adjustedCalories * 0.4 / 4),
         fat: Math.round(adjustedCalories * 0.3 / 9),
         recommendation: recommendation.feasible 
@@ -90,10 +108,18 @@ class AIController {
       const userId = req.user.id;
       const { recipes, k = 3 } = req.body;
       
-      const user = await User.findById(userId);
+      // Get user profile from Firestore
+      const userProfile = await firebaseService.getFromFirestore('users', userId);
+      
+      if (!userProfile) {
+        return res.status(404).json({
+          success: false,
+          message: 'User profile not found'
+        });
+      }
       
       // Cluster recipes based on user profile
-      const clusters = KMeansService.clusterRecipes(recipes, user.profile, k);
+      const clusters = KMeansService.clusterRecipes(recipes, userProfile.profile, k);
 
       res.json({
         success: true,
@@ -112,8 +138,23 @@ class AIController {
   async analyzeProgress(req, res) {
     try {
       const userId = req.user.id;
-      const user = await User.findById(userId);
-      const progressData = await Progress.getUserProgress(userId, 30);
+      
+      // Get user profile and progress data from Firestore
+      const userProfile = await firebaseService.getFromFirestore('users', userId);
+      const progressData = await firebaseService.queryFirestore(
+        'progress', 
+        'userId', 
+        '==', 
+        userId,
+        30
+      );
+
+      if (!userProfile) {
+        return res.status(404).json({
+          success: false,
+          message: 'User profile not found'
+        });
+      }
 
       if (progressData.length < 7) {
         return res.json({
@@ -124,18 +165,21 @@ class AIController {
         });
       }
 
+      // Sort by date (most recent first)
+      const sortedData = progressData.sort((a, b) => new Date(b.date) - new Date(a.date));
+
       // Analyze trends
-      const trends = LinearRegressionService.calculateTrend(progressData);
-      const predictions = LinearRegressionService.predictWeight(progressData, 30);
+      const trends = LinearRegressionService.calculateTrend(sortedData);
+      const predictions = LinearRegressionService.predictWeight(sortedData, 30);
 
       // Calculate insights
       const insights = {
         weightTrend: trends,
         predictions: predictions.predictions.slice(0, 7), // Next week
-        consistency: this.calculateConsistency(progressData),
-        recommendations: this.generateRecommendations(user, progressData, trends),
-        plateauDetected: this.detectPlateau(progressData),
-        successRate: this.calculateSuccessRate(user, progressData)
+        consistency: this.calculateConsistency(sortedData),
+        recommendations: this.generateRecommendations(userProfile.profile, sortedData, trends),
+        plateauDetected: this.detectPlateau(sortedData),
+        successRate: this.calculateSuccessRate(userProfile.profile, sortedData)
       };
 
       res.json({
@@ -156,46 +200,34 @@ class AIController {
     try {
       const userId = req.user.id;
       const { days = 7 } = req.body;
-      const user = await User.findById(userId);
 
-      // This would integrate with Spoonacular API for real meal plans
-      // For now, returning a structured meal plan based on user's macros
-      const dailyMacros = user.calculateMacros();
+      // Get user profile from Firestore
+      const userProfile = await firebaseService.getFromFirestore('users', userId);
       
-      const mealPlan = [];
-      for (let i = 0; i < days; i++) {
-        mealPlan.push({
-          day: i + 1,
-          date: new Date(Date.now() + i * 24 * 60 * 60 * 1000),
-          meals: {
-            breakfast: {
-              calories: Math.round(dailyMacros.calories * 0.25),
-              protein: Math.round(dailyMacros.protein * 0.25),
-              carbs: Math.round(dailyMacros.carbs * 0.25),
-              fat: Math.round(dailyMacros.fat * 0.25)
-            },
-            lunch: {
-              calories: Math.round(dailyMacros.calories * 0.35),
-              protein: Math.round(dailyMacros.protein * 0.35),
-              carbs: Math.round(dailyMacros.carbs * 0.35),
-              fat: Math.round(dailyMacros.fat * 0.35)
-            },
-            dinner: {
-              calories: Math.round(dailyMacros.calories * 0.30),
-              protein: Math.round(dailyMacros.protein * 0.30),
-              carbs: Math.round(dailyMacros.carbs * 0.30),
-              fat: Math.round(dailyMacros.fat * 0.30)
-            },
-            snacks: {
-              calories: Math.round(dailyMacros.calories * 0.10),
-              protein: Math.round(dailyMacros.protein * 0.10),
-              carbs: Math.round(dailyMacros.carbs * 0.10),
-              fat: Math.round(dailyMacros.fat * 0.10)
-            }
-          },
-          totals: dailyMacros
+      if (!userProfile) {
+        return res.status(404).json({
+          success: false,
+          message: 'User profile not found'
         });
       }
+
+      // Get user's favorite recipes for personalization
+      const favoriteRecipes = await firebaseService.getFavoriteRecipes(userId);
+
+      // Generate meal plan using AI/ML
+      const mealPlan = PredictionsService.generateMealPlan(
+        userProfile.profile,
+        favoriteRecipes,
+        days
+      );
+
+      // Store meal plan in Firestore
+      await firebaseService.storeInFirestore('mealPlans', `${userId}_${Date.now()}`, {
+        userId,
+        mealPlan,
+        generatedAt: new Date(),
+        days
+      });
 
       res.json({
         success: true,
@@ -214,26 +246,45 @@ class AIController {
   async optimizeMacros(req, res) {
     try {
       const userId = req.user.id;
-      const user = await User.findById(userId);
-      const progressData = await Progress.getUserProgress(userId, 30);
+      
+      // Get user profile and progress data from Firestore
+      const userProfile = await firebaseService.getFromFirestore('users', userId);
+      const progressData = await firebaseService.queryFirestore(
+        'progress', 
+        'userId', 
+        '==', 
+        userId,
+        30
+      );
+
+      if (!userProfile) {
+        return res.status(404).json({
+          success: false,
+          message: 'User profile not found'
+        });
+      }
+
+      // Sort by date (most recent first)
+      const sortedData = progressData.sort((a, b) => new Date(b.date) - new Date(a.date));
 
       // Analyze current progress
-      const trends = LinearRegressionService.calculateTrend(progressData);
+      const trends = LinearRegressionService.calculateTrend(sortedData);
       
       // Optimize macros based on progress
-      let optimizedMacros = user.calculateMacros();
+      let optimizedMacros = this.calculateMacros(userProfile.profile);
       
-      if (user.profile.goal === 'lose' && trends.direction !== 'losing') {
+      if (userProfile.profile.goal === 'lose' && trends.direction !== 'losing') {
         // Not losing weight, increase deficit
         optimizedMacros.calories = Math.max(1200, optimizedMacros.calories - 200);
-      } else if (user.profile.goal === 'gain' && trends.direction !== 'gaining') {
+      } else if (userProfile.profile.goal === 'gain' && trends.direction !== 'gaining') {
         // Not gaining weight, increase surplus
         optimizedMacros.calories = Math.min(4000, optimizedMacros.calories + 200);
       }
       
       // Adjust protein based on activity
-      if (progressData.filter(p => p.workoutCompleted).length > progressData.length * 0.5) {
-        optimizedMacros.protein = Math.round(user.profile.weight * 2.2 * 1.0); // Increase protein
+      const activeCount = sortedData.filter(p => p.workoutCompleted).length;
+      if (activeCount > sortedData.length * 0.5) {
+        optimizedMacros.protein = Math.round(userProfile.profile.weight * 2.2 * 1.0); // Increase protein
       }
       
       // Recalculate other macros
@@ -243,9 +294,9 @@ class AIController {
       res.json({
         success: true,
         data: {
-          current: user.calculateMacros(),
+          current: this.calculateMacros(userProfile.profile),
           optimized: optimizedMacros,
-          reasoning: this.generateMacroReasoning(user, trends, progressData)
+          reasoning: this.generateMacroReasoning(userProfile.profile, trends, sortedData)
         }
       });
     } catch (error) {
@@ -261,16 +312,42 @@ class AIController {
   async getInsights(req, res) {
     try {
       const userId = req.user.id;
-      const user = await User.findById(userId);
-      const progressData = await Progress.getUserProgress(userId, 30);
-      const goals = await Goal.getActiveGoals(userId);
+      
+      // Get user profile and progress data from Firestore
+      const userProfile = await firebaseService.getFromFirestore('users', userId);
+      const progressData = await firebaseService.queryFirestore(
+        'progress', 
+        'userId', 
+        '==', 
+        userId,
+        30
+      );
+
+      // Get user goals from Firestore
+      const goals = await firebaseService.queryFirestore(
+        'goals', 
+        'userId', 
+        '==', 
+        userId,
+        10
+      );
+
+      if (!userProfile) {
+        return res.status(404).json({
+          success: false,
+          message: 'User profile not found'
+        });
+      }
+
+      // Sort by date (most recent first)
+      const sortedData = progressData.sort((a, b) => new Date(b.date) - new Date(a.date));
 
       const insights = {
-        dailyInsights: this.generateDailyInsights(user, progressData),
-        weeklyTrends: this.generateWeeklyTrends(progressData),
-        goalProgress: this.analyzeGoalProgress(goals, progressData),
-        nutritionInsights: this.generateNutritionInsights(user),
-        motivationalMessage: this.generateMotivationalMessage(user, progressData)
+        dailyInsights: this.generateDailyInsights(userProfile.profile, sortedData),
+        weeklyTrends: this.generateWeeklyTrends(sortedData),
+        goalProgress: this.analyzeGoalProgress(goals, sortedData),
+        nutritionInsights: this.generateNutritionInsights(userProfile.profile),
+        motivationalMessage: this.generateMotivationalMessage(userProfile.profile, sortedData)
       };
 
       res.json({
@@ -290,8 +367,23 @@ class AIController {
   async adjustGoals(req, res) {
     try {
       const userId = req.user.id;
-      const user = await User.findById(userId);
-      const progressData = await Progress.getUserProgress(userId, 30);
+      
+      // Get user profile and progress data from Firestore
+      const userProfile = await firebaseService.getFromFirestore('users', userId);
+      const progressData = await firebaseService.queryFirestore(
+        'progress', 
+        'userId', 
+        '==', 
+        userId,
+        30
+      );
+
+      if (!userProfile) {
+        return res.status(404).json({
+          success: false,
+          message: 'User profile not found'
+        });
+      }
 
       if (progressData.length < 14) {
         return res.json({
@@ -302,14 +394,17 @@ class AIController {
         });
       }
 
-      const trends = LinearRegressionService.calculateTrend(progressData);
+      // Sort by date (most recent first)
+      const sortedData = progressData.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      const trends = LinearRegressionService.calculateTrend(sortedData);
       const currentRate = trends.weeklyChange;
-      const targetRate = (user.profile.weight - user.profile.targetWeight) / 
-                         ((new Date(user.profile.targetDate) - new Date()) / (7 * 24 * 60 * 60 * 1000));
+      const targetRate = (userProfile.profile.weight - userProfile.profile.targetWeight) / 
+                         ((new Date(userProfile.profile.targetDate) - new Date()) / (7 * 24 * 60 * 60 * 1000));
 
       let adjustedGoals = {
-        targetWeight: user.profile.targetWeight,
-        targetDate: user.profile.targetDate,
+        targetWeight: userProfile.profile.targetWeight,
+        targetDate: userProfile.profile.targetDate,
         adjustmentNeeded: false,
         recommendation: ''
       };
@@ -317,7 +412,7 @@ class AIController {
       if (Math.abs(currentRate) < Math.abs(targetRate) * 0.5) {
         // Progress too slow
         adjustedGoals.adjustmentNeeded = true;
-        const weeksNeeded = Math.abs(user.profile.weight - user.profile.targetWeight) / Math.abs(currentRate);
+        const weeksNeeded = Math.abs(userProfile.profile.weight - userProfile.profile.targetWeight) / Math.abs(currentRate);
         adjustedGoals.targetDate = new Date(Date.now() + weeksNeeded * 7 * 24 * 60 * 60 * 1000);
         adjustedGoals.recommendation = 'Based on your current progress, consider extending your target date or increasing your efforts.';
       } else if (Math.abs(currentRate) > Math.abs(targetRate) * 1.5) {
@@ -345,22 +440,38 @@ class AIController {
   async getWorkoutRecommendations(req, res) {
     try {
       const userId = req.user.id;
-      const user = await User.findById(userId);
-      const progressData = await Progress.getUserProgress(userId, 7);
+      
+      // Get user profile and progress data from Firestore
+      const userProfile = await firebaseService.getFromFirestore('users', userId);
+      const progressData = await firebaseService.queryFirestore(
+        'progress', 
+        'userId', 
+        '==', 
+        userId,
+        30
+      );
 
-      const recommendations = {
-        cardio: this.recommendCardio(user.profile),
-        strength: this.recommendStrength(user.profile),
-        flexibility: this.recommendFlexibility(user.profile),
-        weeklySchedule: this.generateWeeklyWorkoutSchedule(user.profile)
-      };
+      if (!userProfile) {
+        return res.status(404).json({
+          success: false,
+          message: 'User profile not found'
+        });
+      }
+
+      // Sort by date (most recent first)
+      const sortedData = progressData.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      const recommendations = PredictionsService.generateWorkoutRecommendations(
+        userProfile.profile,
+        sortedData
+      );
 
       res.json({
         success: true,
         data: recommendations
       });
     } catch (error) {
-      console.error('Get workout recommendations error:', error);
+      console.error('Workout recommendations error:', error);
       res.status(500).json({
         success: false,
         message: 'Failed to generate workout recommendations',
@@ -372,41 +483,37 @@ class AIController {
   async detectPlateau(req, res) {
     try {
       const userId = req.user.id;
-      const progressData = await Progress.getUserProgress(userId, 21);
+      
+      // Get progress data from Firestore
+      const progressData = await firebaseService.queryFirestore(
+        'progress', 
+        'userId', 
+        '==', 
+        userId,
+        60
+      );
 
       if (progressData.length < 14) {
         return res.json({
           success: true,
           data: {
             plateauDetected: false,
-            message: 'Need at least 2 weeks of data to detect plateaus'
+            message: 'Need at least 2 weeks of data to detect plateau'
           }
         });
       }
 
-      const plateauInfo = this.detectPlateau(progressData);
-      
-      let recommendations = [];
-      if (plateauInfo) {
-        recommendations = [
-          'Consider changing your workout routine',
-          'Try intermittent fasting or carb cycling',
-          'Ensure you\'re getting enough sleep',
-          'Reassess your calorie intake',
-          'Add more variety to your meals'
-        ];
-      }
+      // Sort by date (most recent first)
+      const sortedData = progressData.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      const plateauDetected = this.detectPlateau(sortedData);
 
       res.json({
         success: true,
-        data: {
-          plateauDetected: !!plateauInfo,
-          duration: plateauInfo ? plateauInfo.duration : 0,
-          recommendations
-        }
+        data: plateauDetected
       });
     } catch (error) {
-      console.error('Detect plateau error:', error);
+      console.error('Plateau detection error:', error);
       res.status(500).json({
         success: false,
         message: 'Failed to detect plateau',
@@ -416,57 +523,86 @@ class AIController {
   }
 
   // Helper methods
+  calculateMacros(profile) {
+    const { weight = 70, height = 170, age = 25, gender = 'male', activityLevel = 'moderate', goal = 'maintain' } = profile;
+
+    // Harris-Benedict Equation
+    let bmr;
+    if (gender === 'male') {
+      bmr = 88.362 + (13.397 * weight) + (4.799 * height) - (5.677 * age);
+    } else {
+      bmr = 447.593 + (9.247 * weight) + (3.098 * height) - (4.330 * age);
+    }
+
+    // Activity multipliers
+    const activityMultipliers = {
+      sedentary: 1.2,
+      light: 1.375,
+      moderate: 1.55,
+      active: 1.725,
+      veryActive: 1.9
+    };
+
+    let calories = bmr * (activityMultipliers[activityLevel] || 1.55);
+
+    // Adjust for goal
+    if (goal === 'lose') {
+      calories -= 500; // 1 lb per week
+    } else if (goal === 'gain') {
+      calories += 500;
+    }
+
+    // Calculate macros
+    const protein = weight * 2.2 * 0.8; // 0.8g per lb bodyweight
+    const fat = calories * 0.25 / 9; // 25% of calories from fat
+    const carbs = (calories - (protein * 4) - (fat * 9)) / 4;
+
+    return {
+      calories: Math.round(calories),
+      protein: Math.round(protein),
+      carbs: Math.round(carbs),
+      fat: Math.round(fat)
+    };
+  }
+
   calculateConsistency(progressData) {
-    const expectedDays = progressData.length;
-    const actualDays = new Set(progressData.map(p => 
-      new Date(p.date).toISOString().split('T')[0]
-    )).size;
-    return (actualDays / expectedDays) * 100;
+    const totalDays = progressData.length;
+    const workoutDays = progressData.filter(p => p.workoutCompleted).length;
+    return {
+      workoutConsistency: Math.round((workoutDays / totalDays) * 100),
+      loggingConsistency: 100, // They logged if data exists
+      overallScore: Math.round(((workoutDays / totalDays) + 1) / 2 * 100)
+    };
   }
 
   generateRecommendations(user, progressData, trends) {
     const recommendations = [];
     
-    if (trends.pace === 'fast') {
-      recommendations.push('Your weight change is rapid. Ensure you\'re losing/gaining healthily.');
+    if (trends.direction === 'plateau') {
+      recommendations.push('Consider changing your workout routine or adjusting calories.');
     }
     
     if (progressData.filter(p => p.workoutCompleted).length < progressData.length * 0.3) {
-      recommendations.push('Try to increase your workout frequency for better results.');
+      recommendations.push('Try to increase workout frequency for better results.');
     }
     
-    if (user.profile.goal === 'lose' && trends.direction !== 'losing') {
-      recommendations.push('Consider reducing calorie intake or increasing activity.');
+    const avgSleep = progressData.filter(p => p.sleepHours).reduce((sum, p) => sum + p.sleepHours, 0) / progressData.filter(p => p.sleepHours).length;
+    if (avgSleep < 7) {
+      recommendations.push('Aim for 7-9 hours of sleep for better recovery.');
     }
     
     return recommendations;
   }
 
-  detectPlateau(progressData) {
-    if (progressData.length < 14) return null;
-    
-    const recentWeights = progressData.slice(0, 14).map(p => p.weight);
-    const avgWeight = recentWeights.reduce((a, b) => a + b, 0) / recentWeights.length;
-    const variance = recentWeights.reduce((sum, w) => sum + Math.pow(w - avgWeight, 2), 0) / recentWeights.length;
-    
-    if (variance < 0.5) {
-      return { duration: 14, avgWeight };
-    }
-    
-    return null;
-  }
-
-  calculateSuccessRate(user, progressData) {
-    const totalChange = Math.abs(user.profile.targetWeight - progressData[progressData.length - 1].weight);
-    const achievedChange = Math.abs(progressData[0].weight - progressData[progressData.length - 1].weight);
-    return Math.min(100, (achievedChange / totalChange) * 100);
-  }
-
   generateMacroReasoning(user, trends, progressData) {
     const reasons = [];
     
-    if (trends.direction !== user.profile.goal) {
-      reasons.push('Adjusting calories to better align with your goal.');
+    if (user.goal === 'lose' && trends.direction !== 'losing') {
+      reasons.push('Reduced calories to create a larger deficit for weight loss.');
+    }
+    
+    if (user.goal === 'gain' && trends.direction !== 'gaining') {
+      reasons.push('Increased calories to support weight gain.');
     }
     
     if (progressData.filter(p => p.workoutCompleted).length > progressData.length * 0.5) {
@@ -478,8 +614,8 @@ class AIController {
 
   generateDailyInsights(user, progressData) {
     return {
-      calorieTarget: user.profile.dailyCalories,
-      waterGoal: Math.round(user.profile.weight * 35), // ml per kg
+      calorieTarget: user.dailyCalories,
+      waterGoal: Math.round(user.weight * 35), // ml per kg
       stepGoal: 10000,
       sleepRecommendation: '7-9 hours'
     };
@@ -510,16 +646,16 @@ class AIController {
   analyzeGoalProgress(goals, progressData) {
     return goals.map(goal => ({
       title: goal.title,
-      progress: goal.progress,
-      onTrack: goal.progress >= (Date.now() - goal.startDate) / (goal.targetDate - goal.startDate) * 100
+      progress: goal.progress || 0,
+      onTrack: (goal.progress || 0) >= (Date.now() - new Date(goal.startDate).getTime()) / (new Date(goal.targetDate).getTime() - new Date(goal.startDate).getTime()) * 100
     }));
   }
 
   generateNutritionInsights(user) {
     return {
-      proteinPerMeal: Math.round(user.profile.dailyProtein / 4),
+      proteinPerMeal: Math.round(user.dailyProtein / 4),
       carbTiming: 'Consider having more carbs around workouts',
-      hydration: `Aim for ${Math.round(user.profile.weight * 35)}ml of water daily`
+      hydration: `Aim for ${Math.round(user.weight * 35)}ml of water daily`
     };
   }
 
@@ -535,86 +671,36 @@ class AIController {
     return messages[Math.floor(Math.random() * messages.length)];
   }
 
-  recommendCardio(profile) {
-    const { goal, activityLevel } = profile;
+  calculateSuccessRate(user, progressData) {
+    const target = user.goal === 'lose' ? -1 : user.goal === 'gain' ? 1 : 0;
+    const recent = progressData.slice(0, 7);
     
-    if (goal === 'lose') {
-      return {
-        frequency: '4-5 times per week',
-        duration: '30-45 minutes',
-        intensity: 'Moderate to high',
-        types: ['Running', 'Cycling', 'HIIT', 'Swimming']
-      };
-    } else if (goal === 'gain') {
-      return {
-        frequency: '2-3 times per week',
-        duration: '20-30 minutes',
-        intensity: 'Low to moderate',
-        types: ['Walking', 'Light cycling', 'Yoga']
-      };
-    } else {
-      return {
-        frequency: '3-4 times per week',
-        duration: '30 minutes',
-        intensity: 'Moderate',
-        types: ['Jogging', 'Cycling', 'Swimming', 'Dancing']
-      };
-    }
+    if (recent.length < 2) return 50;
+    
+    const trend = (recent[0].weight - recent[recent.length - 1].weight) / recent.length;
+    const success = target === 0 ? Math.abs(trend) < 0.1 : (target > 0 && trend > 0) || (target < 0 && trend < 0);
+    
+    return success ? 80 : 30;
   }
 
-  recommendStrength(profile) {
-    const { goal, activityLevel } = profile;
+  detectPlateau(progressData) {
+    if (progressData.length < 14) return false;
+    
+    const recent = progressData.slice(0, 14);
+    const weights = recent.map(p => p.weight);
+    const variance = this.calculateVariance(weights);
     
     return {
-      frequency: goal === 'gain' ? '4-5 times per week' : '3-4 times per week',
-      split: goal === 'gain' ? 'Push/Pull/Legs' : 'Full body',
-      sets: goal === 'gain' ? '4-5' : '3-4',
-      reps: goal === 'gain' ? '6-12' : '12-15'
+      plateauDetected: variance < 0.5, // Less than 0.5kg variance in 2 weeks
+      duration: variance < 0.5 ? 14 : 0,
+      suggestion: variance < 0.5 ? 'Consider changing your approach - try new exercises or adjust your diet' : 'Keep up the good work!'
     };
   }
 
-  recommendFlexibility(profile) {
-    return {
-      frequency: 'Daily',
-      duration: '10-15 minutes',
-      types: ['Static stretching', 'Dynamic stretching', 'Yoga', 'Foam rolling']
-    };
-  }
-
-  generateWeeklyWorkoutSchedule(profile) {
-    const { goal } = profile;
-    
-    if (goal === 'lose') {
-      return {
-        monday: 'Cardio + Core',
-        tuesday: 'Strength Training - Upper Body',
-        wednesday: 'HIIT',
-        thursday: 'Strength Training - Lower Body',
-        friday: 'Cardio',
-        saturday: 'Full Body Strength',
-        sunday: 'Rest or Light Yoga'
-      };
-    } else if (goal === 'gain') {
-      return {
-        monday: 'Chest & Triceps',
-        tuesday: 'Back & Biceps',
-        wednesday: 'Legs',
-        thursday: 'Shoulders & Abs',
-        friday: 'Arms',
-        saturday: 'Legs',
-        sunday: 'Rest'
-      };
-    } else {
-      return {
-        monday: 'Full Body Strength',
-        tuesday: 'Cardio',
-        wednesday: 'Upper Body Strength',
-        thursday: 'Yoga or Rest',
-        friday: 'Lower Body Strength',
-        saturday: 'Cardio',
-        sunday: 'Rest or Light Activity'
-      };
-    }
+  calculateVariance(numbers) {
+    const mean = numbers.reduce((sum, num) => sum + num, 0) / numbers.length;
+    const squaredDiffs = numbers.map(num => Math.pow(num - mean, 2));
+    return squaredDiffs.reduce((sum, diff) => sum + diff, 0) / numbers.length;
   }
 }
 
