@@ -1,3 +1,4 @@
+// server/services/spoonacular.service.js
 const axios = require('axios');
 
 class SpoonacularService {
@@ -68,7 +69,7 @@ class SpoonacularService {
 
       console.log('=========================================\n');
 
-      return response.data.results || [];
+      return { success: true, data: response.data.results || [] };
       
     } catch (error) {
       // ENHANCED ERROR LOGGING
@@ -112,7 +113,7 @@ class SpoonacularService {
       console.error('📚 Full Error:', error);
       console.error('=====================================\n');
       
-      throw new Error(`Spoonacular API Error: ${error.message}`);
+      return { success: false, data: [], error: error.message };
     }
   }
 
