@@ -4,10 +4,8 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
+const admin = require('firebase-admin');
 require('dotenv').config();
-
-// Initialize Firebase Admin (this will initialize the Firebase app)
-require('./config/firebase');
 
 // Import routes
 const authRoutes = require('./routes/auth.routes');
@@ -18,6 +16,27 @@ const aiRoutes = require('./routes/ai.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Initialize Firebase Admin (only if not already initialized)
+if (!admin.apps.length) {
+  try {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
+      }),
+      databaseURL: process.env.FIREBASE_DATABASE_URL
+    });
+    console.log('🔥 Firebase Admin initialized successfully');
+  } catch (error) {
+    console.error('❌ Firebase initialization error:', error.message);
+  }
+} else {
+  console.log('🔥 Firebase Admin already initialized');
+}
+
+console.log('✅ Server starting without MongoDB');
 
 // Middleware
 app.use(helmet());
@@ -34,20 +53,6 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({
-    success: true,
-    message: 'FitGoal AI Server is running with Firebase',
-    timestamp: new Date().toISOString(),
-    services: {
-      firebase: 'connected',
-      spoonacular: process.env.SPOONACULAR_API_KEY ? "REDACTED_SPOONACULAR_API_KEY" : 'not configured'
-
-    }
-  });
-});
-
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
@@ -55,27 +60,29 @@ app.use('/api/recipes', recipeRoutes);
 app.use('/api/progress', progressRoutes);
 app.use('/api/ai', aiRoutes);
 
-// 404 handler
-app.use('*', (req, res) => {
-  res.status(404).json({
-    success: false,
-    message: 'Route not found'
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    success: true, 
+    message: 'Server is running',
+    firebase: 'connected',
+    timestamp: new Date().toISOString()
   });
 });
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error('Server error:', err);
+  console.error('❌ Error:', err.stack);
   res.status(500).json({
     success: false,
-    message: 'Internal server error',
-    error: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
+    message: 'Something went wrong!',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
   });
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 FitGoal AI Server running on port ${PORT}`);
-  console.log(`🔥 Firebase configured and ready`);
-  console.log(`🌐 Health check: http://localhost:${PORT}/api/health`);
-  console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`\n🚀 Server running on port ${PORT}`);
+  console.log(`📍 API available at http://localhost:${PORT}/api`);
+  console.log(`🔥 Using Firebase for data storage`);
+  console.log(`🌐 Health check: http://localhost:${PORT}/api/health\n`);
 });

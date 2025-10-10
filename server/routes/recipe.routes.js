@@ -5,7 +5,12 @@ const recipeController = require('../controllers/recipe.controller');
 const authMiddleware = require('../middleware/auth.middleware');
 const validationMiddleware = require('../middleware/validation.middleware');
 
-// Public routes (no auth required)
+// ============================================
+// ALL ROUTES REQUIRE AUTHENTICATION
+// ============================================
+router.use(authMiddleware.authenticate);
+
+// Search recipes (requires auth for personalization)
 router.get('/search', 
   query('query').optional().trim(),
   query('diet').optional().isIn(['gluten free', 'ketogenic', 'vegetarian', 'vegan', 'pescetarian', 'paleo']),
@@ -16,17 +21,20 @@ router.get('/search',
   recipeController.searchRecipes
 );
 
+// Get personalized recommendations
+router.get('/recommendations/personalized', recipeController.getPersonalizedRecommendations);
+
+// Get recipe details by ID
 router.get('/:recipeId', recipeController.getRecipeDetails);
 
-// Protected routes (auth required)
-router.use(authMiddleware.authenticate);
-
+// Favorites management
 router.post('/favorites/:recipeId', recipeController.addToFavorites);
 
 router.delete('/favorites/:recipeId', recipeController.removeFromFavorites);
 
 router.get('/user/favorites', recipeController.getFavorites);
 
+// Meal planning
 router.post('/meal-plan',
   body('diet').optional().isIn(['gluten free', 'ketogenic', 'vegetarian', 'vegan', 'pescetarian', 'paleo']),
   body('exclude').optional().isArray(),
@@ -34,12 +42,14 @@ router.post('/meal-plan',
   recipeController.generateMealPlan
 );
 
+// Nutrition analysis
 router.post('/analyze',
   body('ingredients').isArray().notEmpty(),
   validationMiddleware.handleValidationErrors,
   recipeController.analyzeNutrition
 );
 
+// Custom recipes CRUD
 router.post('/create',
   body('title').notEmpty().trim(),
   body('servings').isInt({ min: 1 }),
@@ -64,13 +74,12 @@ router.put('/:recipeId',
 
 router.delete('/:recipeId', recipeController.deleteCustomRecipe);
 
+// Recipe rating
 router.post('/:recipeId/rate',
   body('rating').isInt({ min: 1, max: 5 }),
   body('review').optional().trim(),
   validationMiddleware.handleValidationErrors,
   recipeController.rateRecipe
 );
-
-router.get('/recommendations/personalized', recipeController.getPersonalizedRecommendations);
 
 module.exports = router;
