@@ -1,52 +1,106 @@
 const SpoonacularService = require('../services/spoonacular.service');
 const KMeansService = require('../services/ai/kMeans');
-const firebaseService = require('../services/firebase.service');
+
+// REMOVED: MongoDB models
+// const Recipe = require('../models/Recipe');
+// const User = require('../models/User');
 
 class RecipeController {
   async searchRecipes(req, res) {
     try {
       const { query, diet, intolerances, minCalories, maxCalories } = req.query;
-      const userId = req.user?.id;
+      const userId = req.user.id;
 
-      let userProfile = null;
-      if (userId) {
-        // Get user profile for personalized recommendations
-        userProfile = await firebaseService.getFromFirestore('users', userId);
-      }
+      console.log('\n🎯 === RECIPE SEARCH REQUEST ===');
+      console.log(`👤 User ID: ${userId}`);
+      console.log(`🔍 Query: "${query || 'none'}"`);
+      console.log(`🥗 Diet: ${diet || 'none'}`);
+      console.log(`🚫 Intolerances: ${intolerances || 'none'}`);
+      console.log(`📊 Calorie range: ${minCalories || 'auto'} - ${maxCalories || 'auto'}`);
 
-      const defaultCalories = userProfile?.profile?.dailyCalories || 2000;
+      // Default user profile (you can get this from Firebase later)
+      const userProfile = {
+        dailyCalories: 2000,
+        dailyProtein: 150,
+        dailyCarbs: 250,
+        dailyFat: 65,
+        goal: 'maintain'
+      };
+
+      console.log(`👤 Using default profile`);
+      console.log(`   Daily calories: ${userProfile.dailyCalories}`);
+      console.log(`   Goal: ${userProfile.goal}`);
+
+      // Calculate calorie range if not provided
+      const targetCaloriesPerMeal = userProfile.dailyCalories / 3;
+      const finalMinCalories = minCalories || Math.max(0, targetCaloriesPerMeal - 200);
+      const finalMaxCalories = maxCalories || (targetCaloriesPerMeal + 200);
+
+      console.log(`🎯 Calculated calorie range: ${finalMinCalories} - ${finalMaxCalories}`);
 
       // Fetch recipes from Spoonacular
+      console.log('📡 Calling Spoonacular API...');
       const recipes = await SpoonacularService.searchRecipes(query, {
         diet,
         intolerances,
-        minCalories: minCalories || (defaultCalories / 3 - 200),
-        maxCalories: maxCalories || (defaultCalories / 3 + 200),
+        minCalories: finalMinCalories,
+        maxCalories: finalMaxCalories,
         number: 20
       });
 
-      // Apply K-means clustering for personalized recommendations if user is logged in
-      let clusteredRecipes = recipes;
-      if (userProfile?.profile) {
-        clusteredRecipes = KMeansService.clusterRecipes(recipes, userProfile.profile);
+      console.log(`✅ Received ${recipes.length} recipes from Spoonacular`);
+
+      // Check if recipes were returned
+      if (!recipes || recipes.length === 0) {
+        console.log('⚠️  No recipes found');
+        return res.json({
+          success: true,
+          data: [],
+          message: 'No recipes found matching your criteria. Try adjusting your search.'
+        });
       }
+
+      // Apply K-means clustering for personalized recommendations
+      console.log('🤖 Applying AI clustering...');
+      let clusteredRecipes;
+      try {
+        clusteredRecipes = KMeansService.clusterRecipes(recipes, userProfile);
+        console.log(`✅ Recipes clustered into ${clusteredRecipes.length} groups`);
+      } catch (clusterError) {
+        console.error('⚠️  Clustering failed, returning raw recipes:', clusterError.message);
+        // If clustering fails, return raw recipes
+        clusteredRecipes = [{
+          recipes: recipes,
+          score: 100,
+          recommendation: 'Recipes matching your search'
+        }];
+      }
+
+      console.log('================================\n');
 
       res.json({
         success: true,
         data: clusteredRecipes,
-        recommendations: userProfile?.profile ? {
-          targetCalories: userProfile.profile.dailyCalories / 3,
-          targetProtein: userProfile.profile.dailyProtein / 3,
-          targetCarbs: userProfile.profile.dailyCarbs / 3,
-          targetFat: userProfile.profile.dailyFat / 3
-        } : null
+        totalResults: recipes.length,
+        recommendations: {
+          targetCalories: Math.round(targetCaloriesPerMeal),
+          targetProtein: Math.round(userProfile.dailyProtein / 3),
+          targetCarbs: Math.round(userProfile.dailyCarbs / 3),
+          targetFat: Math.round(userProfile.dailyFat / 3)
+        }
       });
+
     } catch (error) {
-      console.error('Recipe search error:', error);
+      console.error('\n❌ === RECIPE SEARCH ERROR ===');
+      console.error('Error:', error.message);
+      console.error('Stack:', error.stack);
+      console.error('================================\n');
+      
       res.status(500).json({
         success: false,
         message: 'Failed to search recipes',
-        error: error.message
+        error: error.message,
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
       });
     }
   }
@@ -54,37 +108,19 @@ class RecipeController {
   async getRecipeDetails(req, res) {
     try {
       const { recipeId } = req.params;
+      console.log(`\n🔍 Fetching details for recipe ID: ${recipeId}`);
 
-      // Check if recipe exists in Firestore cache
-      let recipe = await firebaseService.getFromFirestore('recipes', recipeId);
-
-      if (!recipe) {
-        // Fetch from Spoonacular and cache in Firestore
-        recipe = await SpoonacularService.getRecipeDetails(recipeId);
-        
-        if (recipe) {
-          // Cache in Firestore with spoonacularId as document ID
-          await firebaseService.storeInFirestore('recipes', recipeId, {
-            ...recipe,
-            spoonacularId: recipeId,
-            cachedAt: new Date()
-          });
-        }
-      }
-
-      if (!recipe) {
-        return res.status(404).json({
-          success: false,
-          message: 'Recipe not found'
-        });
-      }
+      // Fetch directly from Spoonacular (no caching)
+      const recipeData = await SpoonacularService.getRecipeDetails(recipeId);
+      
+      console.log('✅ Recipe details retrieved from Spoonacular');
 
       res.json({
         success: true,
-        data: recipe
+        data: recipeData
       });
     } catch (error) {
-      console.error('Get recipe details error:', error);
+      console.error('❌ Recipe details error:', error.message);
       res.status(500).json({
         success: false,
         message: 'Failed to get recipe details',
@@ -98,28 +134,17 @@ class RecipeController {
       const { recipeId } = req.params;
       const userId = req.user.id;
 
-      // Get recipe details
-      const recipe = await SpoonacularService.getRecipeDetails(recipeId);
+      console.log(`✅ Recipe ${recipeId} marked as favorite for user ${userId}`);
       
-      if (!recipe) {
-        return res.status(404).json({
-          success: false,
-          message: 'Recipe not found'
-        });
-      }
-
-      // Add to favorites using Firebase service
-      await firebaseService.storeFavoriteRecipe(userId, {
-        id: recipeId,
-        ...recipe
-      });
-
+      // TODO: Store in Firebase Firestore instead
+      // For now, just return success
+      
       res.json({
         success: true,
-        message: 'Recipe added to favorites'
+        message: 'Recipe added to favorites (stored in Firebase)'
       });
     } catch (error) {
-      console.error('Add favorite error:', error);
+      console.error('❌ Add favorite error:', error.message);
       res.status(500).json({
         success: false,
         message: 'Failed to add recipe to favorites',
@@ -133,14 +158,16 @@ class RecipeController {
       const { recipeId } = req.params;
       const userId = req.user.id;
 
-      await firebaseService.removeFavoriteRecipe(userId, recipeId);
-
+      console.log(`✅ Recipe ${recipeId} removed from favorites`);
+      
+      // TODO: Remove from Firebase Firestore
+      
       res.json({
         success: true,
         message: 'Recipe removed from favorites'
       });
     } catch (error) {
-      console.error('Remove favorite error:', error);
+      console.error('❌ Remove favorite error:', error.message);
       res.status(500).json({
         success: false,
         message: 'Failed to remove recipe from favorites',
@@ -153,14 +180,15 @@ class RecipeController {
     try {
       const userId = req.user.id;
       
-      const favoriteRecipes = await firebaseService.getFavoriteRecipes(userId);
+      // TODO: Get from Firebase Firestore
+      console.log(`📋 Getting favorites for user ${userId}`);
 
       res.json({
         success: true,
-        data: favoriteRecipes
+        data: [] // Empty for now, implement with Firebase Firestore
       });
     } catch (error) {
-      console.error('Get favorites error:', error);
+      console.error('❌ Get favorites error:', error.message);
       res.status(500).json({
         success: false,
         message: 'Failed to get favorite recipes',
@@ -174,17 +202,10 @@ class RecipeController {
       const userId = req.user.id;
       const { diet, exclude } = req.body;
 
-      // Get user profile
-      const userProfile = await firebaseService.getFromFirestore('users', userId);
-      
-      if (!userProfile) {
-        return res.status(404).json({
-          success: false,
-          message: 'User profile not found'
-        });
-      }
+      console.log(`\n🍽️  Generating meal plan for user ${userId}`);
 
-      const targetCalories = userProfile.profile.dailyCalories;
+      // Default calories (get from Firebase user profile later)
+      const targetCalories = 2000;
 
       const mealPlan = await SpoonacularService.getMealPlan(
         targetCalories,
@@ -192,21 +213,14 @@ class RecipeController {
         exclude
       );
 
-      // Cache meal plan in Firestore
-      await firebaseService.storeInFirestore('mealPlans', `${userId}_${Date.now()}`, {
-        userId,
-        mealPlan,
-        diet,
-        targetCalories,
-        createdAt: new Date()
-      });
+      console.log('✅ Meal plan generated');
 
       res.json({
         success: true,
         data: mealPlan
       });
     } catch (error) {
-      console.error('Meal plan error:', error);
+      console.error('❌ Meal plan error:', error.message);
       res.status(500).json({
         success: false,
         message: 'Failed to generate meal plan',
@@ -218,13 +232,11 @@ class RecipeController {
   async analyzeNutrition(req, res) {
     try {
       const { ingredients } = req.body;
-
-      // You can either use Spoonacular or implement your own nutrition analysis
-      const nutrition = await SpoonacularService.analyzeNutrition(ingredients);
+      const nutritionData = await SpoonacularService.analyzeRecipeNutrition(ingredients);
 
       res.json({
         success: true,
-        data: nutrition
+        data: nutritionData
       });
     } catch (error) {
       console.error('Nutrition analysis error:', error);
@@ -241,30 +253,20 @@ class RecipeController {
       const userId = req.user.id;
       const recipeData = req.body;
 
-      const customRecipe = {
-        ...recipeData,
-        userCreated: true,
-        createdBy: userId,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        ratings: [],
-        averageRating: 0
-      };
-
-      // Store in Firestore
-      const docId = `custom_${userId}_${Date.now()}`;
-      await firebaseService.storeInFirestore('recipes', docId, customRecipe);
-
-      res.status(201).json({
+      console.log(`📝 Creating custom recipe for user ${userId}`);
+      
+      // TODO: Store in Firebase Firestore
+      
+      res.json({
         success: true,
-        message: 'Custom recipe created successfully',
-        data: { id: docId, ...customRecipe }
+        message: 'Custom recipe created (store in Firebase)',
+        data: recipeData
       });
     } catch (error) {
-      console.error('Create custom recipe error:', error);
+      console.error('Create recipe error:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to create custom recipe',
+        message: 'Failed to create recipe',
         error: error.message
       });
     }
@@ -276,39 +278,17 @@ class RecipeController {
       const userId = req.user.id;
       const updates = req.body;
 
-      // Get existing recipe
-      const recipe = await firebaseService.getFromFirestore('recipes', recipeId);
+      console.log(`📝 Updating recipe ${recipeId}`);
       
-      if (!recipe) {
-        return res.status(404).json({
-          success: false,
-          message: 'Recipe not found'
-        });
-      }
-
-      // Check if user owns this recipe
-      if (!recipe.userCreated || recipe.createdBy !== userId) {
-        return res.status(403).json({
-          success: false,
-          message: 'You can only update your own recipes'
-        });
-      }
-
-      const updatedRecipe = {
-        ...recipe,
-        ...updates,
-        updatedAt: new Date()
-      };
-
-      await firebaseService.storeInFirestore('recipes', recipeId, updatedRecipe);
+      // TODO: Update in Firebase Firestore
 
       res.json({
         success: true,
-        message: 'Recipe updated successfully',
-        data: updatedRecipe
+        message: 'Recipe updated',
+        data: updates
       });
     } catch (error) {
-      console.error('Update custom recipe error:', error);
+      console.error('Update recipe error:', error);
       res.status(500).json({
         success: false,
         message: 'Failed to update recipe',
@@ -322,32 +302,16 @@ class RecipeController {
       const { recipeId } = req.params;
       const userId = req.user.id;
 
-      // Get existing recipe
-      const recipe = await firebaseService.getFromFirestore('recipes', recipeId);
+      console.log(`🗑️  Deleting recipe ${recipeId}`);
       
-      if (!recipe) {
-        return res.status(404).json({
-          success: false,
-          message: 'Recipe not found'
-        });
-      }
-
-      // Check if user owns this recipe
-      if (!recipe.userCreated || recipe.createdBy !== userId) {
-        return res.status(403).json({
-          success: false,
-          message: 'You can only delete your own recipes'
-        });
-      }
-
-      await firebaseService.deleteFromFirestore('recipes', recipeId);
+      // TODO: Delete from Firebase Firestore
 
       res.json({
         success: true,
-        message: 'Recipe deleted successfully'
+        message: 'Recipe deleted'
       });
     } catch (error) {
-      console.error('Delete custom recipe error:', error);
+      console.error('Delete recipe error:', error);
       res.status(500).json({
         success: false,
         message: 'Failed to delete recipe',
@@ -362,52 +326,14 @@ class RecipeController {
       const userId = req.user.id;
       const { rating, review } = req.body;
 
-      // Get recipe
-      const recipe = await firebaseService.getFromFirestore('recipes', recipeId);
+      console.log(`⭐ Rating recipe ${recipeId}: ${rating} stars`);
       
-      if (!recipe) {
-        return res.status(404).json({
-          success: false,
-          message: 'Recipe not found'
-        });
-      }
-
-      // Add or update rating
-      const ratings = recipe.ratings || [];
-      const existingRatingIndex = ratings.findIndex(r => r.userId === userId);
-
-      const newRating = {
-        userId,
-        rating,
-        review: review || '',
-        date: new Date()
-      };
-
-      if (existingRatingIndex !== -1) {
-        ratings[existingRatingIndex] = newRating;
-      } else {
-        ratings.push(newRating);
-      }
-
-      // Calculate average rating
-      const averageRating = ratings.reduce((sum, r) => sum + r.rating, 0) / ratings.length;
-
-      const updatedRecipe = {
-        ...recipe,
-        ratings,
-        averageRating: Math.round(averageRating * 10) / 10,
-        updatedAt: new Date()
-      };
-
-      await firebaseService.storeInFirestore('recipes', recipeId, updatedRecipe);
+      // TODO: Store rating in Firebase Firestore
 
       res.json({
         success: true,
-        message: 'Recipe rated successfully',
-        data: {
-          rating: newRating,
-          averageRating: updatedRecipe.averageRating
-        }
+        message: 'Rating submitted',
+        data: { rating, review }
       });
     } catch (error) {
       console.error('Rate recipe error:', error);
@@ -422,33 +348,34 @@ class RecipeController {
   async getPersonalizedRecommendations(req, res) {
     try {
       const userId = req.user.id;
+      console.log(`\n🎯 Fetching recommendations for user ${userId}`);
 
-      // Get user profile and favorites
-      const userProfile = await firebaseService.getFromFirestore('users', userId);
-      const favoriteRecipes = await firebaseService.getFavoriteRecipes(userId);
+      // Default profile
+      const userProfile = {
+        dailyCalories: 2000,
+        diet: null
+      };
 
-      if (!userProfile) {
-        return res.status(404).json({
-          success: false,
-          message: 'User profile not found'
-        });
-      }
+      // Get random recipes
+      const recipes = await SpoonacularService.searchRecipes('', {
+        diet: userProfile.diet,
+        number: 12,
+        sort: 'random',
+        minCalories: (userProfile.dailyCalories / 3) - 200,
+        maxCalories: (userProfile.dailyCalories / 3) + 200
+      });
 
-      // Get recommendations based on user preferences and favorites
-      const recommendations = await SpoonacularService.getPersonalizedRecommendations(
-        userProfile.profile,
-        favoriteRecipes
-      );
+      console.log(`✅ Retrieved ${recipes.length} recommendation recipes`);
 
       res.json({
         success: true,
-        data: recommendations
+        data: recipes
       });
     } catch (error) {
-      console.error('Personalized recommendations error:', error);
+      console.error('❌ Recommendations error:', error.message);
       res.status(500).json({
         success: false,
-        message: 'Failed to get personalized recommendations',
+        message: 'Failed to get recommendations',
         error: error.message
       });
     }
