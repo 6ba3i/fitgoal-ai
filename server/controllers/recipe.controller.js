@@ -1,385 +1,473 @@
-const SpoonacularService = require('../services/spoonacular.service');
-const KMeansService = require('../services/ai/kMeans');
+import axios from 'axios';
 
-// REMOVED: MongoDB models
-// const Recipe = require('../models/Recipe');
-// const User = require('../models/User');
+class SpoonacularService {
+  constructor() {
+    this.apiKey = import.meta.env.SPOONACULAR_API_KEY || process.env.SPOONACULAR_API_KEY;
+    this.baseURL = 'https://api.spoonacular.com';
+    
+    // Log configuration on startup
+    console.log('🔧 Spoonacular Service Initialized');
+    console.log(`   Base URL: ${this.baseURL}`);
+    console.log(`   API Key: ${this.apiKey ? '✓ Set' : '✗ Missing'}`);
+  }
 
-class RecipeController {
-  async searchRecipes(req, res) {
+  async searchRecipes(query, filters = {}) {
     try {
-      const { query, diet, intolerances, minCalories, maxCalories } = req.query;
-      const userId = req.user.id;
-
-      console.log('\n🎯 === RECIPE SEARCH REQUEST ===');
-      console.log(`👤 User ID: ${userId}`);
-      console.log(`🔍 Query: "${query || 'none'}"`);
-      console.log(`🥗 Diet: ${diet || 'none'}`);
-      console.log(`🚫 Intolerances: ${intolerances || 'none'}`);
-      console.log(`📊 Calorie range: ${minCalories || 'auto'} - ${maxCalories || 'auto'}`);
-
-      // Default user profile (you can get this from Firebase later)
-      const userProfile = {
-        dailyCalories: 2000,
-        dailyProtein: 150,
-        dailyCarbs: 250,
-        dailyFat: 65,
-        goal: 'maintain'
+      // Build parameters object
+      const params = {
+        apiKey: this.apiKey,
+        query: query || '',
+        number: filters.number || 10,
+        addRecipeInformation: true,  // FIXED: was addRecipeNutrition
+        fillIngredients: true
       };
 
-      console.log(`👤 Using default profile`);
-      console.log(`   Daily calories: ${userProfile.dailyCalories}`);
-      console.log(`   Goal: ${userProfile.goal}`);
+      // Only add optional parameters if they have values
+      if (filters.minCalories) params.minCalories = filters.minCalories;
+      if (filters.maxCalories) params.maxCalories = filters.maxCalories;
+      if (filters.minProtein) params.minProtein = filters.minProtein;
+      if (filters.minCarbs) params.minCarbs = filters.minCarbs;
+      if (filters.minFat) params.minFat = filters.minFat;
+      if (filters.diet) params.diet = filters.diet;
+      if (filters.intolerances) params.intolerances = filters.intolerances;
+      if (filters.sort) params.sort = filters.sort;
+      if (filters.excludeIngredients) params.excludeIngredients = filters.excludeIngredients;
 
-      // Calculate calorie range if not provided
-      const targetCaloriesPerMeal = userProfile.dailyCalories / 3;
-      const finalMinCalories = minCalories || Math.max(0, targetCaloriesPerMeal - 200);
-      const finalMaxCalories = maxCalories || (targetCaloriesPerMeal + 200);
+      const endpoint = `${this.baseURL}/recipes/complexSearch`;
+      
+      // LOG: Request details
+      console.log('\n🔍 === SPOONACULAR API SEARCH REQUEST ===');
+      console.log(`📍 Endpoint: ${endpoint}`);
+      console.log('📦 Parameters:', JSON.stringify(params, null, 2));
+      console.log(`⏰ Time: ${new Date().toISOString()}`);
 
-      console.log(`🎯 Calculated calorie range: ${finalMinCalories} - ${finalMaxCalories}`);
+      const response = await axios.get(endpoint, { params });
 
-      // Fetch recipes from Spoonacular
-      console.log('📡 Calling Spoonacular API...');
-      const recipes = await SpoonacularService.searchRecipes(query, {
-        diet,
-        intolerances,
-        minCalories: finalMinCalories,
-        maxCalories: finalMaxCalories,
-        number: 20
-      });
-
-      console.log(`✅ Received ${recipes.length} recipes from Spoonacular`);
-
-      // Check if recipes were returned
-      if (!recipes || recipes.length === 0) {
-        console.log('⚠️  No recipes found');
-        return res.json({
-          success: true,
-          data: [],
-          message: 'No recipes found matching your criteria. Try adjusting your search.'
-        });
+      // LOG: Response details
+      console.log('\n✅ === SPOONACULAR API SEARCH RESPONSE ===');
+      console.log(`📊 Status: ${response.status} ${response.statusText}`);
+      console.log(`📈 Results count: ${response.data.results?.length || 0}`);
+      console.log(`📋 Total available: ${response.data.totalResults || 0}`);
+      console.log(`🔢 Offset: ${response.data.offset || 0}`);
+      
+      // LOG: API quota info if available
+      if (response.headers['x-api-quota-used']) {
+        console.log('\n📊 === API QUOTA INFO ===');
+        console.log(`   Used: ${response.headers['x-api-quota-used']}`);
+        console.log(`   Left: ${response.headers['x-api-quota-left']}`);
       }
 
-      // Apply K-means clustering for personalized recommendations
-      console.log('🤖 Applying AI clustering...');
-      let clusteredRecipes;
-      try {
-        clusteredRecipes = KMeansService.clusterRecipes(recipes, userProfile);
-        console.log(`✅ Recipes clustered into ${clusteredRecipes.length} groups`);
-      } catch (clusterError) {
-        console.error('⚠️  Clustering failed, returning raw recipes:', clusterError.message);
-        // If clustering fails, return raw recipes
-        clusteredRecipes = [{
-          recipes: recipes,
-          score: 100,
-          recommendation: 'Recipes matching your search'
-        }];
+      // LOG: Sample of first result for debugging
+      if (response.data.results && response.data.results.length > 0) {
+        console.log('\n📝 First Result Sample:');
+        const firstRecipe = response.data.results[0];
+        console.log(`   ID: ${firstRecipe.id}`);
+        console.log(`   Title: ${firstRecipe.title}`);
+        console.log(`   Image: ${firstRecipe.image ? '✓' : '✗'}`);
+        console.log(`   Nutrition data: ${firstRecipe.nutrition ? '✓' : '✗'}`);
       }
 
-      console.log('================================\n');
+      console.log('=========================================\n');
 
-      res.json({
+      return {
         success: true,
-        data: clusteredRecipes,
-        totalResults: recipes.length,
-        recommendations: {
-          targetCalories: Math.round(targetCaloriesPerMeal),
-          targetProtein: Math.round(userProfile.dailyProtein / 3),
-          targetCarbs: Math.round(userProfile.dailyCarbs / 3),
-          targetFat: Math.round(userProfile.dailyFat / 3)
+        data: response.data.results || []
+      };
+      
+    } catch (error) {
+      // ENHANCED ERROR LOGGING
+      console.error('\n❌ === SPOONACULAR API ERROR ===');
+      console.error(`⏰ Time: ${new Date().toISOString()}`);
+      
+      if (error.response) {
+        // The request was made and the server responded with a status code
+        // that falls out of the range of 2xx
+        console.error(`📊 Status: ${error.response.status}`);
+        console.error(`📋 Status Text: ${error.response.statusText}`);
+        console.error('📦 Response Data:', JSON.stringify(error.response.data, null, 2));
+        console.error('🔑 Headers:', JSON.stringify(error.response.headers, null, 2));
+        
+        // Specific error messages based on status code
+        if (error.response.status === 401) {
+          console.error('🔐 Authentication Error: Invalid API key');
+          throw new Error('Invalid Spoonacular API key. Please check your .env file.');
+        } else if (error.response.status === 402) {
+          console.error('💰 Payment Required: API quota exceeded');
+          throw new Error('Spoonacular API quota exceeded. Please upgrade your plan.');
+        } else if (error.response.status === 404) {
+          console.error('🔍 Not Found: Endpoint may be incorrect');
+          throw new Error('Spoonacular API endpoint not found.');
+        } else if (error.response.status === 429) {
+          console.error('⏱️  Rate Limited: Too many requests');
+          throw new Error('Too many requests to Spoonacular API. Please try again later.');
+        }
+        
+      } else if (error.request) {
+        // The request was made but no response was received
+        console.error('📡 No Response Received');
+        console.error('🌐 Request Details:', error.request);
+        throw new Error('No response from Spoonacular API. Check your internet connection.');
+        
+      } else {
+        // Something happened in setting up the request that triggered an Error
+        console.error('⚙️  Setup Error:', error.message);
+      }
+      
+      console.error('📚 Full Error:', error);
+      console.error('=====================================\n');
+      
+      return {
+        success: false,
+        data: [],
+        error: error.message
+      };
+    }
+  }
+
+  async getRecipeDetails(recipeId) {
+    try {
+      console.log(`\n🔍 Fetching recipe details for ID: ${recipeId}`);
+      
+      const response = await axios.get(`${this.baseURL}/recipes/${recipeId}/information`, {
+        params: {
+          apiKey: this.apiKey,
+          includeNutrition: true
         }
       });
 
-    } catch (error) {
-      console.error('\n❌ === RECIPE SEARCH ERROR ===');
-      console.error('Error:', error.message);
-      console.error('Stack:', error.stack);
-      console.error('================================\n');
+      console.log(`✅ Recipe details retrieved: ${response.data.title}`);
       
-      res.status(500).json({
-        success: false,
-        message: 'Failed to search recipes',
-        error: error.message,
-        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
-      });
-    }
-  }
-
-  async getRecipeDetails(req, res) {
-    try {
-      const { recipeId } = req.params;
-      console.log(`\n🔍 Fetching details for recipe ID: ${recipeId}`);
-
-      // Fetch directly from Spoonacular (no caching)
-      const recipeData = await SpoonacularService.getRecipeDetails(recipeId);
-      
-      console.log('✅ Recipe details retrieved from Spoonacular');
-
-      res.json({
+      return {
         success: true,
-        data: recipeData
-      });
+        data: response.data
+      };
+      
     } catch (error) {
-      console.error('❌ Recipe details error:', error.message);
-      res.status(500).json({
+      console.error(`❌ Failed to fetch recipe ${recipeId}:`, error.message);
+      if (error.response) {
+        console.error(`Status: ${error.response.status}`);
+        console.error(`Data:`, error.response.data);
+      }
+      
+      return {
         success: false,
-        message: 'Failed to get recipe details',
         error: error.message
-      });
+      };
     }
   }
 
-  async addToFavorites(req, res) {
+  async getPersonalizedRecommendations(userProfile, excludedIngredients = []) {
     try {
-      const { recipeId } = req.params;
-      const userId = req.user.id;
-
-      console.log(`✅ Recipe ${recipeId} marked as favorite for user ${userId}`);
+      console.log('\n⭐ === FETCHING PERSONALIZED RECOMMENDATIONS ===');
+      console.log(`👤 User Profile:`, userProfile);
+      console.log(`🚫 Excluded Ingredients:`, excludedIngredients);
       
-      // TODO: Store in Firebase Firestore instead
-      // For now, just return success
-      
-      res.json({
-        success: true,
-        message: 'Recipe added to favorites (stored in Firebase)'
-      });
-    } catch (error) {
-      console.error('❌ Add favorite error:', error.message);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to add recipe to favorites',
-        error: error.message
-      });
-    }
-  }
+      const targetCalories = userProfile?.dailyCalories 
+        ? Math.round(userProfile.dailyCalories / 3) 
+        : 600;
 
-  async removeFromFavorites(req, res) {
-    try {
-      const { recipeId } = req.params;
-      const userId = req.user.id;
-
-      console.log(`✅ Recipe ${recipeId} removed from favorites`);
-      
-      // TODO: Remove from Firebase Firestore
-      
-      res.json({
-        success: true,
-        message: 'Recipe removed from favorites'
-      });
-    } catch (error) {
-      console.error('❌ Remove favorite error:', error.message);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to remove recipe from favorites',
-        error: error.message
-      });
-    }
-  }
-
-  async getFavorites(req, res) {
-    try {
-      const userId = req.user.id;
-      
-      // TODO: Get from Firebase Firestore
-      console.log(`📋 Getting favorites for user ${userId}`);
-
-      res.json({
-        success: true,
-        data: [] // Empty for now, implement with Firebase Firestore
-      });
-    } catch (error) {
-      console.error('❌ Get favorites error:', error.message);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to get favorite recipes',
-        error: error.message
-      });
-    }
-  }
-
-  async generateMealPlan(req, res) {
-    try {
-      const userId = req.user.id;
-      const { diet, exclude } = req.body;
-
-      console.log(`\n🍽️  Generating meal plan for user ${userId}`);
-
-      // Default calories (get from Firebase user profile later)
-      const targetCalories = 2000;
-
-      const mealPlan = await SpoonacularService.getMealPlan(
-        targetCalories,
-        diet,
-        exclude
-      );
-
-      console.log('✅ Meal plan generated');
-
-      res.json({
-        success: true,
-        data: mealPlan
-      });
-    } catch (error) {
-      console.error('❌ Meal plan error:', error.message);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to generate meal plan',
-        error: error.message
-      });
-    }
-  }
-
-  async analyzeNutrition(req, res) {
-    try {
-      const { ingredients } = req.body;
-      const nutritionData = await SpoonacularService.analyzeRecipeNutrition(ingredients);
-
-      res.json({
-        success: true,
-        data: nutritionData
-      });
-    } catch (error) {
-      console.error('Nutrition analysis error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to analyze nutrition',
-        error: error.message
-      });
-    }
-  }
-
-  async createCustomRecipe(req, res) {
-    try {
-      const userId = req.user.id;
-      const recipeData = req.body;
-
-      console.log(`📝 Creating custom recipe for user ${userId}`);
-      
-      // TODO: Store in Firebase Firestore
-      
-      res.json({
-        success: true,
-        message: 'Custom recipe created (store in Firebase)',
-        data: recipeData
-      });
-    } catch (error) {
-      console.error('Create recipe error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to create recipe',
-        error: error.message
-      });
-    }
-  }
-
-  async updateCustomRecipe(req, res) {
-    try {
-      const { recipeId } = req.params;
-      const userId = req.user.id;
-      const updates = req.body;
-
-      console.log(`📝 Updating recipe ${recipeId}`);
-      
-      // TODO: Update in Firebase Firestore
-
-      res.json({
-        success: true,
-        message: 'Recipe updated',
-        data: updates
-      });
-    } catch (error) {
-      console.error('Update recipe error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to update recipe',
-        error: error.message
-      });
-    }
-  }
-
-  async deleteCustomRecipe(req, res) {
-    try {
-      const { recipeId } = req.params;
-      const userId = req.user.id;
-
-      console.log(`🗑️  Deleting recipe ${recipeId}`);
-      
-      // TODO: Delete from Firebase Firestore
-
-      res.json({
-        success: true,
-        message: 'Recipe deleted'
-      });
-    } catch (error) {
-      console.error('Delete recipe error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to delete recipe',
-        error: error.message
-      });
-    }
-  }
-
-  async rateRecipe(req, res) {
-    try {
-      const { recipeId } = req.params;
-      const userId = req.user.id;
-      const { rating, review } = req.body;
-
-      console.log(`⭐ Rating recipe ${recipeId}: ${rating} stars`);
-      
-      // TODO: Store rating in Firebase Firestore
-
-      res.json({
-        success: true,
-        message: 'Rating submitted',
-        data: { rating, review }
-      });
-    } catch (error) {
-      console.error('Rate recipe error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to rate recipe',
-        error: error.message
-      });
-    }
-  }
-
-  async getPersonalizedRecommendations(req, res) {
-    try {
-      const userId = req.user.id;
-      console.log(`\n🎯 Fetching recommendations for user ${userId}`);
-
-      // Default profile
-      const userProfile = {
-        dailyCalories: 2000,
-        diet: null
+      const params = {
+        apiKey: this.apiKey,
+        number: 12,
+        addRecipeInformation: true,
+        fillIngredients: true,
+        minCalories: targetCalories - 200,
+        maxCalories: targetCalories + 200,
+        sort: 'popularity'
       };
 
-      // Get random recipes
-      const recipes = await SpoonacularService.searchRecipes('', {
-        diet: userProfile.diet,
-        number: 12,
-        sort: 'random',
-        minCalories: (userProfile.dailyCalories / 3) - 200,
-        maxCalories: (userProfile.dailyCalories / 3) + 200
-      });
+      if (userProfile?.dietaryPreferences) {
+        params.diet = userProfile.dietaryPreferences;
+      }
 
-      console.log(`✅ Retrieved ${recipes.length} recommendation recipes`);
+      if (excludedIngredients.length > 0) {
+        params.excludeIngredients = excludedIngredients.join(',');
+      }
 
-      res.json({
+      console.log('📦 Request params:', JSON.stringify(params, null, 2));
+
+      const response = await axios.get(`${this.baseURL}/recipes/complexSearch`, { params });
+      
+      console.log(`✅ Retrieved ${response.data.results?.length || 0} recommendations`);
+      
+      return {
         success: true,
-        data: recipes
-      });
+        data: response.data.results || []
+      };
     } catch (error) {
-      console.error('❌ Recommendations error:', error.message);
-      res.status(500).json({
+      console.error('❌ Recommendations Error:', error.message);
+      if (error.response) {
+        console.error(`Status: ${error.response.status}`);
+        console.error(`Data:`, error.response.data);
+      }
+      
+      return {
         success: false,
-        message: 'Failed to get recommendations',
+        data: [],
         error: error.message
+      };
+    }
+  }
+
+  async getMealPlan(targetCalories, diet, exclude) {
+    try {
+      console.log(`\n🍽️  Generating meal plan (${targetCalories} cal, ${diet || 'any'} diet)`);
+      
+      const response = await axios.get(`${this.baseURL}/mealplanner/generate`, {
+        params: {
+          apiKey: this.apiKey,
+          timeFrame: 'day',
+          targetCalories,
+          diet,
+          exclude
+        }
       });
+
+      console.log(`✅ Meal plan generated`);
+      
+      return {
+        success: true,
+        data: response.data
+      };
+      
+    } catch (error) {
+      console.error('❌ Meal plan generation error:', error.message);
+      if (error.response) {
+        console.error(`Status: ${error.response.status}`);
+        console.error(`Data:`, error.response.data);
+      }
+      
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async analyzeRecipeNutrition(ingredients) {
+    try {
+      console.log(`\n🧪 Analyzing nutrition for ${ingredients.length} ingredients`);
+      
+      const response = await axios.post(
+        `${this.baseURL}/recipes/analyze`,
+        { ingredients },
+        {
+          params: { apiKey: this.apiKey },
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+
+      console.log(`✅ Nutrition analysis complete`);
+      
+      return {
+        success: true,
+        data: response.data
+      };
+      
+    } catch (error) {
+      console.error('❌ Nutrition analysis error:', error.message);
+      if (error.response) {
+        console.error(`Status: ${error.response.status}`);
+        console.error(`Data:`, error.response.data);
+      }
+      
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  // Test method to verify API connection
+  async testConnection() {
+    try {
+      console.log('\n🧪 Testing Spoonacular API connection...');
+      
+      const response = await axios.get(`${this.baseURL}/recipes/random`, {
+        params: {
+          apiKey: this.apiKey,
+          number: 1
+        }
+      });
+
+      console.log('✅ API connection successful!');
+      console.log(`   Test recipe: ${response.data.recipes[0].title}`);
+      
+      if (response.headers['x-api-quota-used']) {
+        console.log(`   Quota used: ${response.headers['x-api-quota-used']}`);
+        console.log(`   Quota left: ${response.headers['x-api-quota-left']}`);
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('❌ API connection test failed:', error.message);
+      return false;
+    }
+  }
+
+  // Additional helper methods for recipe search
+  async searchRecipesByIngredients(ingredients, number = 10) {
+    try {
+      console.log(`\n🔍 Searching recipes by ingredients: ${ingredients}`);
+      
+      const response = await axios.get(`${this.baseURL}/recipes/findByIngredients`, {
+        params: {
+          apiKey: this.apiKey,
+          ingredients: ingredients,
+          number: number,
+          ranking: 2,
+          ignorePantry: true
+        }
+      });
+
+      console.log(`✅ Found ${response.data.length} recipes`);
+      
+      return {
+        success: true,
+        data: response.data
+      };
+    } catch (error) {
+      console.error('❌ Search by ingredients error:', error.message);
+      
+      return {
+        success: false,
+        data: [],
+        error: error.message
+      };
+    }
+  }
+
+  async getRandomRecipes(number = 10, tags = '') {
+    try {
+      console.log(`\n🎲 Getting ${number} random recipes`);
+      
+      const response = await axios.get(`${this.baseURL}/recipes/random`, {
+        params: {
+          apiKey: this.apiKey,
+          number: number,
+          tags: tags
+        }
+      });
+
+      console.log(`✅ Retrieved ${response.data.recipes.length} random recipes`);
+      
+      return {
+        success: true,
+        data: response.data.recipes
+      };
+    } catch (error) {
+      console.error('❌ Random recipes error:', error.message);
+      
+      return {
+        success: false,
+        data: [],
+        error: error.message
+      };
+    }
+  }
+
+  async getSimilarRecipes(recipeId, number = 5) {
+    try {
+      console.log(`\n🔄 Getting similar recipes to ID: ${recipeId}`);
+      
+      const response = await axios.get(`${this.baseURL}/recipes/${recipeId}/similar`, {
+        params: {
+          apiKey: this.apiKey,
+          number: number
+        }
+      });
+
+      console.log(`✅ Found ${response.data.length} similar recipes`);
+      
+      return {
+        success: true,
+        data: response.data
+      };
+    } catch (error) {
+      console.error('❌ Similar recipes error:', error.message);
+      
+      return {
+        success: false,
+        data: [],
+        error: error.message
+      };
+    }
+  }
+
+  async getRecipeNutritionWidget(recipeId) {
+    try {
+      console.log(`\n📊 Getting nutrition widget for recipe: ${recipeId}`);
+      
+      const response = await axios.get(`${this.baseURL}/recipes/${recipeId}/nutritionWidget.json`, {
+        params: {
+          apiKey: this.apiKey
+        }
+      });
+
+      console.log(`✅ Nutrition widget data retrieved`);
+      
+      return {
+        success: true,
+        data: response.data
+      };
+    } catch (error) {
+      console.error('❌ Nutrition widget error:', error.message);
+      
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async autocompleteRecipeSearch(query, number = 10) {
+    try {
+      const response = await axios.get(`${this.baseURL}/recipes/autocomplete`, {
+        params: {
+          apiKey: this.apiKey,
+          query: query,
+          number: number
+        }
+      });
+
+      return {
+        success: true,
+        data: response.data
+      };
+    } catch (error) {
+      console.error('❌ Autocomplete error:', error.message);
+      
+      return {
+        success: false,
+        data: [],
+        error: error.message
+      };
+    }
+  }
+
+  async getRecipeInstructions(recipeId) {
+    try {
+      const response = await axios.get(`${this.baseURL}/recipes/${recipeId}/analyzedInstructions`, {
+        params: {
+          apiKey: this.apiKey
+        }
+      });
+
+      return {
+        success: true,
+        data: response.data
+      };
+    } catch (error) {
+      console.error('❌ Instructions error:', error.message);
+      
+      return {
+        success: false,
+        data: [],
+        error: error.message
+      };
     }
   }
 }
 
-module.exports = new RecipeController();
+// FIXED: Export as ES6 module instead of CommonJS
+export const spoonacularService = new SpoonacularService();
