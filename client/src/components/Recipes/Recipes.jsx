@@ -1,10 +1,15 @@
-// client/src/components/Recipes/Recipes.jsx
 import React, { useState, useEffect, useContext } from 'react';
 import { toast } from 'react-toastify';
 import { UserContext } from '../../context/UserContext';
 import { AuthContext } from '../../context/AuthContext';
 import { spoonacularService } from '../../services/spoonacular.service';
 import './Recipes.css';
+
+const COMMON_INGREDIENTS = [
+  'dairy', 'eggs', 'gluten', 'peanuts', 'tree nuts', 'soy', 
+  'shellfish', 'fish', 'wheat', 'sesame', 'mushrooms', 
+  'tomatoes', 'onions', 'garlic', 'peppers', 'coconut'
+];
 
 const Recipes = () => {
   const { user } = useContext(AuthContext);
@@ -22,22 +27,38 @@ const Recipes = () => {
   const [selectedRecipe, setSelectedRecipe] = useState(null);
   const [activeTab, setActiveTab] = useState('search');
   const [mealPlan, setMealPlan] = useState(null);
+  
+  // Personalization states
+  const [showPersonalizationModal, setShowPersonalizationModal] = useState(false);
+  const [excludedIngredients, setExcludedIngredients] = useState([]);
 
   useEffect(() => {
-    if (userProfile) {
+    // Load excluded ingredients from localStorage
+    const saved = localStorage.getItem('excludedIngredients');
+    if (saved) {
+      setExcludedIngredients(JSON.parse(saved));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'recommended') {
       fetchRecommendations();
     }
-  }, [userProfile]);
+  }, [activeTab, excludedIngredients, userProfile]);
 
   const fetchRecommendations = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const result = await spoonacularService.getPersonalizedRecommendations(userProfile);
+      const result = await spoonacularService.getPersonalizedRecommendations(
+        userProfile, 
+        excludedIngredients
+      );
       if (result.success) {
         setRecommendations(result.data);
       }
     } catch (error) {
       console.error('Failed to fetch recommendations:', error);
+      toast.error('Failed to load recommendations');
     } finally {
       setLoading(false);
     }
@@ -56,7 +77,8 @@ const Recipes = () => {
         diet: filters.diet,
         minCalories: filters.minCalories,
         maxCalories: filters.maxCalories,
-        intolerances: filters.intolerances
+        intolerances: filters.intolerances,
+        excludeIngredients: excludedIngredients.join(',')
       });
 
       if (result.success) {
@@ -75,6 +97,23 @@ const Recipes = () => {
     }
   };
 
+  const toggleIngredientExclusion = (ingredient) => {
+    setExcludedIngredients(prev => {
+      const newExcluded = prev.includes(ingredient)
+        ? prev.filter(i => i !== ingredient)
+        : [...prev, ingredient];
+      
+      // Save to localStorage
+      localStorage.setItem('excludedIngredients', JSON.stringify(newExcluded));
+      return newExcluded;
+    });
+  };
+
+  const clearAllExclusions = () => {
+    setExcludedIngredients([]);
+    localStorage.removeItem('excludedIngredients');
+  };
+
   const viewRecipeDetails = async (recipe) => {
     setLoading(true);
     try {
@@ -82,7 +121,6 @@ const Recipes = () => {
       if (result.success) {
         setSelectedRecipe(result.data);
       } else {
-        // Use the basic recipe data if details fail
         setSelectedRecipe(recipe);
       }
     } catch (error) {
@@ -136,27 +174,26 @@ const Recipes = () => {
       const result = await addMealToIntake(mealData);
       if (result.success) {
         toast.success('Added to today\'s meals!');
-        setSelectedRecipe(null);
       } else {
-        toast.error(result.error || 'Failed to add meal');
+        toast.error('Failed to add meal');
       }
     } catch (error) {
-      toast.error('An error occurred');
+      toast.error('Error adding meal');
     }
   };
 
   const generateMealPlan = async () => {
     if (!userProfile) {
-      toast.error('Please complete your profile first');
+      toast.warning('Please complete your profile first');
       return;
     }
 
     setLoading(true);
     try {
       const result = await spoonacularService.getMealPlan(
-        userProfile.dailyCalories || 2000,
+        userProfile.dailyCalories,
         filters.diet,
-        filters.intolerances
+        excludedIngredients.join(',')
       );
 
       if (result.success) {
@@ -166,8 +203,8 @@ const Recipes = () => {
         toast.error('Failed to generate meal plan');
       }
     } catch (error) {
-      console.error('Meal plan error:', error);
-      toast.error('An error occurred');
+      console.error('Meal plan generation error:', error);
+      toast.error('Error generating meal plan');
     } finally {
       setLoading(false);
     }
@@ -178,20 +215,35 @@ const Recipes = () => {
     const calories = recipe.nutrition?.nutrients?.find(n => n.name === 'Calories')?.amount || 
                     recipe.nutrition?.calories || 
                     recipe.calories || 0;
+    const protein = recipe.nutrition?.nutrients?.find(n => n.name === 'Protein')?.amount || 
+                   recipe.nutrition?.protein || 
+                   recipe.protein || 0;
 
     return (
       <div className="recipe-card glass-container">
-        <img 
-          src={recipe.image || 'https://via.placeholder.com/300x200?text=No+Image'} 
-          alt={recipe.title}
-          className="recipe-image"
-        />
+        <div className="recipe-image" style={{ backgroundImage: `url(${recipe.image})` }}>
+          <button 
+            className="favorite-btn"
+            onClick={() => toggleFavorite(recipe)}
+          >
+            <i className={`fas fa-heart ${isFavorited ? 'text-danger' : 'text-white'}`}></i>
+          </button>
+        </div>
         <div className="recipe-content">
-          <h5 className="recipe-title">{recipe.title}</h5>
-          <div className="recipe-info">
-            <span><i className="fas fa-clock"></i> {recipe.readyInMinutes || 30} min</span>
-            <span><i className="fas fa-fire"></i> {Math.round(calories)} cal</span>
-            <span><i className="fas fa-utensils"></i> {recipe.servings || 4} servings</span>
+          <h5 className="recipe-title text-white">{recipe.title}</h5>
+          <div className="recipe-stats">
+            <div className="stat">
+              <i className="fas fa-fire text-warning"></i>
+              <span>{Math.round(calories)} cal</span>
+            </div>
+            <div className="stat">
+              <i className="fas fa-drumstick-bite text-info"></i>
+              <span>{Math.round(protein)}g protein</span>
+            </div>
+            <div className="stat">
+              <i className="fas fa-clock text-success"></i>
+              <span>{recipe.readyInMinutes || 30} min</span>
+            </div>
           </div>
           <div className="recipe-actions">
             <button 
@@ -201,10 +253,10 @@ const Recipes = () => {
               View Details
             </button>
             <button 
-              className={`btn btn-sm ${isFavorited ? 'btn-danger' : 'btn-outline-danger'}`}
-              onClick={() => toggleFavorite(recipe)}
+              className="btn btn-sm btn-success"
+              onClick={() => addToMeals(recipe)}
             >
-              <i className={`fas fa-heart ${isFavorited ? '' : 'text-white'}`}></i>
+              Add to Meals
             </button>
           </div>
         </div>
@@ -214,6 +266,71 @@ const Recipes = () => {
 
   return (
     <div className="container recipes-container">
+      {/* Personalization Modal */}
+      {showPersonalizationModal && (
+        <div className="personalization-overlay" onClick={() => setShowPersonalizationModal(false)}>
+          <div className="personalization-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="text-white">Personalize Your Recipes</h3>
+              <button 
+                className="close-btn"
+                onClick={() => setShowPersonalizationModal(false)}
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            
+            <div className="modal-body">
+              <p className="text-white-50 mb-4">
+                Select ingredients you want to exclude from recipe recommendations
+              </p>
+              
+              <div className="ingredients-grid">
+                {COMMON_INGREDIENTS.map(ingredient => (
+                  <button
+                    key={ingredient}
+                    className={`ingredient-tag ${excludedIngredients.includes(ingredient) ? 'excluded' : ''}`}
+                    onClick={() => toggleIngredientExclusion(ingredient)}
+                  >
+                    {ingredient}
+                    {excludedIngredients.includes(ingredient) && (
+                      <i className="fas fa-times-circle ms-2"></i>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {excludedIngredients.length > 0 && (
+                <div className="mt-4">
+                  <button 
+                    className="btn btn-outline-light btn-sm"
+                    onClick={clearAllExclusions}
+                  >
+                    Clear All Exclusions
+                  </button>
+                  <p className="text-white-50 mt-2 small">
+                    {excludedIngredients.length} ingredient(s) excluded
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="modal-footer">
+              <button 
+                className="btn btn-primary w-100"
+                onClick={() => {
+                  setShowPersonalizationModal(false);
+                  fetchRecommendations();
+                  toast.success('Preferences saved!');
+                }}
+              >
+                Save Preferences
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="recipes-header mb-4">
         <h1 className="text-white">Discover Recipes</h1>
         <p className="text-white-50">Find delicious recipes tailored to your nutritional goals</p>
@@ -307,23 +424,43 @@ const Recipes = () => {
 
       {/* Recommended Tab */}
       {activeTab === 'recommended' && (
-        <div className="recipes-grid">
-          {loading && (
-            <div className="text-center w-100">
-              <div className="spinner-border text-light" role="status">
-                <span className="visually-hidden">Loading...</span>
+        <>
+          <div className="glass-container p-4 mb-4 d-flex justify-content-between align-items-center">
+            <div>
+              <h5 className="text-white mb-1">Personalized Recommendations</h5>
+              <p className="text-white-50 small mb-0">
+                {excludedIngredients.length > 0 
+                  ? `Excluding ${excludedIngredients.length} ingredient(s)` 
+                  : 'No ingredients excluded'}
+              </p>
+            </div>
+            <button 
+              className="btn btn-outline-light"
+              onClick={() => setShowPersonalizationModal(true)}
+            >
+              <i className="fas fa-sliders-h me-2"></i>
+              Customize
+            </button>
+          </div>
+
+          <div className="recipes-grid">
+            {loading && (
+              <div className="text-center w-100">
+                <div className="spinner-border text-light" role="status">
+                  <span className="visually-hidden">Loading...</span>
+                </div>
               </div>
-            </div>
-          )}
-          {!loading && recommendations.map(recipe => (
-            <RecipeCard key={recipe.id} recipe={recipe} />
-          ))}
-          {!loading && recommendations.length === 0 && (
-            <div className="empty-state">
-              <p className="text-white-50">Complete your profile to get personalized recommendations!</p>
-            </div>
-          )}
-        </div>
+            )}
+            {!loading && recommendations.map(recipe => (
+              <RecipeCard key={recipe.id} recipe={recipe} />
+            ))}
+            {!loading && recommendations.length === 0 && (
+              <div className="empty-state">
+                <p className="text-white-50">No recommendations available. Try adjusting your preferences!</p>
+              </div>
+            )}
+          </div>
+        </>
       )}
 
       {/* Favorites Tab */}
@@ -363,124 +500,50 @@ const Recipes = () => {
                       <h5 className="text-white mb-3">
                         {index === 0 ? 'Breakfast' : index === 1 ? 'Lunch' : 'Dinner'}
                       </h5>
-                      <div className="meal-item">
-                        <p className="text-white">{meal.title}</p>
-                        <small className="text-white-50">
-                          Ready in {meal.readyInMinutes} min
-                        </small>
-                        <button 
-                          className="btn btn-sm btn-outline-light mt-2"
-                          onClick={() => viewRecipeDetails(meal)}
-                        >
-                          View Recipe
-                        </button>
-                      </div>
+                      <RecipeCard recipe={meal} />
                     </div>
                   </div>
                 ))}
               </div>
-
-              {mealPlan.nutrients && (
-                <div className="meal-plan-nutrition mt-4">
-                  <h5 className="text-white mb-3">Daily Nutrition</h5>
-                  <div className="nutrition-summary">
-                    <div className="nutrition-stat">
-                      <span className="stat-label">Calories</span>
-                      <span className="stat-value">{Math.round(mealPlan.nutrients.calories)}</span>
-                    </div>
-                    <div className="nutrition-stat">
-                      <span className="stat-label">Protein</span>
-                      <span className="stat-value">{Math.round(mealPlan.nutrients.protein)}g</span>
-                    </div>
-                    <div className="nutrition-stat">
-                      <span className="stat-label">Carbs</span>
-                      <span className="stat-value">{Math.round(mealPlan.nutrients.carbohydrates)}g</span>
-                    </div>
-                    <div className="nutrition-stat">
-                      <span className="stat-label">Fat</span>
-                      <span className="stat-value">{Math.round(mealPlan.nutrients.fat)}g</span>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
           {!mealPlan && !loading && (
-            <div className="text-center py-5">
-              <p className="text-white-50">Generate a personalized meal plan based on your profile!</p>
+            <div className="empty-state">
+              <p className="text-white-50">Generate a meal plan to get started!</p>
             </div>
           )}
         </div>
       )}
 
-      {/* Recipe Detail Modal */}
+      {/* Recipe Details Modal */}
       {selectedRecipe && (
         <div className="recipe-modal-overlay" onClick={() => setSelectedRecipe(null)}>
           <div className="recipe-modal glass-container" onClick={(e) => e.stopPropagation()}>
             <button 
-              className="btn-close btn-close-white position-absolute top-0 end-0 m-3"
+              className="close-btn"
               onClick={() => setSelectedRecipe(null)}
-            ></button>
-            
-            <div className="recipe-details">
-              <img 
-                src={selectedRecipe.image || 'https://via.placeholder.com/600x400'} 
-                alt={selectedRecipe.title}
-                className="recipe-detail-image"
-              />
-              
-              <h3 className="text-white mb-3">{selectedRecipe.title}</h3>
-              
-              <div className="recipe-meta mb-4">
-                <span className="badge bg-primary me-2">
-                  <i className="fas fa-clock"></i> {selectedRecipe.readyInMinutes || 30} min
-                </span>
-                <span className="badge bg-info me-2">
-                  <i className="fas fa-utensils"></i> {selectedRecipe.servings || 4} servings
-                </span>
-                <span className="badge bg-warning">
-                  <i className="fas fa-fire"></i> {
-                    Math.round(selectedRecipe.nutrition?.nutrients?.find(n => n.name === 'Calories')?.amount || 
-                    selectedRecipe.nutrition?.calories || 
-                    selectedRecipe.calories || 0)
-                  } cal
-                </span>
-              </div>
-
-              <div className="recipe-actions mb-4">
-                <button 
-                  className="btn btn-success me-2"
-                  onClick={() => addToMeals(selectedRecipe)}
-                >
-                  <i className="fas fa-plus me-2"></i>Add to Today's Meals
-                </button>
-                <button 
-                  className={`btn ${favoriteRecipes.some(r => r.id === selectedRecipe.id) ? 'btn-danger' : 'btn-outline-danger'}`}
-                  onClick={() => toggleFavorite(selectedRecipe)}
-                >
-                  <i className="fas fa-heart me-2"></i>
-                  {favoriteRecipes.some(r => r.id === selectedRecipe.id) ? 'Remove from' : 'Add to'} Favorites
-                </button>
-              </div>
-
+            >
+              <i className="fas fa-times"></i>
+            </button>
+            <h3 className="text-white mb-3">{selectedRecipe.title}</h3>
+            {selectedRecipe.image && (
+              <img src={selectedRecipe.image} alt={selectedRecipe.title} className="w-100 rounded mb-3" />
+            )}
+            <div className="recipe-modal-content">
               {selectedRecipe.summary && (
-                <div className="mb-4">
-                  <h5 className="text-white">Description</h5>
-                  <p className="text-white-50" dangerouslySetInnerHTML={{ 
-                    __html: selectedRecipe.summary 
-                  }}></p>
-                </div>
+                <div dangerouslySetInnerHTML={{ __html: selectedRecipe.summary }} 
+                     className="text-white-50 mb-3" />
               )}
-
-              {selectedRecipe.instructions && (
-                <div className="mb-4">
-                  <h5 className="text-white">Instructions</h5>
-                  <div className="text-white-50" dangerouslySetInnerHTML={{ 
-                    __html: selectedRecipe.instructions 
-                  }}></div>
-                </div>
-              )}
+              <button 
+                className="btn btn-success w-100"
+                onClick={() => {
+                  addToMeals(selectedRecipe);
+                  setSelectedRecipe(null);
+                }}
+              >
+                Add to Today's Meals
+              </button>
             </div>
           </div>
         </div>
