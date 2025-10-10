@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const firebaseService = require('../services/firebase.service');
 
 class AuthMiddleware {
   async authenticate(req, res, next) {
@@ -14,7 +14,9 @@ class AuthMiddleware {
       }
 
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const user = await User.findById(decoded.id).select('-password');
+      
+      // Get user from Firestore instead of MongoDB
+      const user = await firebaseService.getFromFirestore('users', decoded.id);
 
       if (!user) {
         return res.status(401).json({
@@ -23,7 +25,13 @@ class AuthMiddleware {
         });
       }
 
-      req.user = user;
+      // Set user data for use in routes
+      req.user = {
+        id: decoded.id,
+        email: decoded.email,
+        displayName: user.displayName,
+        profile: user.profile
+      };
       req.token = token;
       next();
     } catch (error) {
@@ -56,14 +64,49 @@ class AuthMiddleware {
 
       if (token) {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const user = await User.findById(decoded.id).select('-password');
-        req.user = user;
+        
+        // Get user from Firestore
+        const user = await firebaseService.getFromFirestore('users', decoded.id);
+        
+        if (user) {
+          req.user = {
+            id: decoded.id,
+            email: decoded.email,
+            displayName: user.displayName,
+            profile: user.profile
+          };
+        }
       }
 
       next();
     } catch (error) {
       // Continue without authentication
       next();
+    }
+  }
+
+  async requireAdmin(req, res, next) {
+    try {
+      // First authenticate
+      await this.authenticate(req, res, () => {});
+      
+      // Check if user has admin role (you can customize this logic)
+      const user = await firebaseService.getFromFirestore('users', req.user.id);
+      
+      if (!user?.role || user.role !== 'admin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Admin access required'
+        });
+      }
+
+      next();
+    } catch (error) {
+      console.error('Admin authentication error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Admin authentication failed'
+      });
     }
   }
 }

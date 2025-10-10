@@ -1,7 +1,6 @@
 const SpoonacularService = require('../services/spoonacular.service');
 const KMeansService = require('../services/ai/kMeans');
-const Recipe = require('../models/Recipe');
-const User = require('../models/User');
+const firebaseService = require('../services/firebase.service');
 
 class RecipeController {
   async searchRecipes(req, res) {
@@ -9,35 +8,37 @@ class RecipeController {
       const { query, diet, intolerances, minCalories, maxCalories } = req.query;
       const userId = req.user?.id;
 
-      // If user is authenticated, get their profile
       let userProfile = null;
       if (userId) {
-        const user = await User.findById(userId);
-        userProfile = user.profile;
+        // Get user profile for personalized recommendations
+        userProfile = await firebaseService.getFromFirestore('users', userId);
       }
+
+      const defaultCalories = userProfile?.profile?.dailyCalories || 2000;
 
       // Fetch recipes from Spoonacular
       const recipes = await SpoonacularService.searchRecipes(query, {
         diet,
         intolerances,
-        minCalories: minCalories || (userProfile?.dailyCalories / 3 - 200) || 400,
-        maxCalories: maxCalories || (userProfile?.dailyCalories / 3 + 200) || 800,
+        minCalories: minCalories || (defaultCalories / 3 - 200),
+        maxCalories: maxCalories || (defaultCalories / 3 + 200),
         number: 20
       });
 
-      // Apply K-means clustering if user is authenticated
-      const clusteredRecipes = userProfile 
-        ? KMeansService.clusterRecipes(recipes, userProfile)
-        : recipes;
+      // Apply K-means clustering for personalized recommendations if user is logged in
+      let clusteredRecipes = recipes;
+      if (userProfile?.profile) {
+        clusteredRecipes = KMeansService.clusterRecipes(recipes, userProfile.profile);
+      }
 
       res.json({
         success: true,
         data: clusteredRecipes,
-        recommendations: userProfile ? {
-          targetCalories: userProfile.dailyCalories / 3,
-          targetProtein: userProfile.dailyProtein / 3,
-          targetCarbs: userProfile.dailyCarbs / 3,
-          targetFat: userProfile.dailyFat / 3
+        recommendations: userProfile?.profile ? {
+          targetCalories: userProfile.profile.dailyCalories / 3,
+          targetProtein: userProfile.profile.dailyProtein / 3,
+          targetCarbs: userProfile.profile.dailyCarbs / 3,
+          targetFat: userProfile.profile.dailyFat / 3
         } : null
       });
     } catch (error) {
@@ -54,31 +55,28 @@ class RecipeController {
     try {
       const { recipeId } = req.params;
 
-      // Check if recipe exists in database
-      let recipe = await Recipe.findOne({ spoonacularId: recipeId });
+      // Check if recipe exists in Firestore cache
+      let recipe = await firebaseService.getFromFirestore('recipes', recipeId);
 
       if (!recipe) {
-        // Fetch from Spoonacular API
-        const recipeData = await SpoonacularService.getRecipeDetails(recipeId);
+        // Fetch from Spoonacular and cache in Firestore
+        recipe = await SpoonacularService.getRecipeDetails(recipeId);
         
-        // Save to database for caching
-        recipe = new Recipe({
-          spoonacularId: recipeId,
-          title: recipeData.title,
-          image: recipeData.image,
-          nutrition: {
-            calories: recipeData.nutrition?.nutrients?.find(n => n.name === 'Calories')?.amount || 0,
-            protein: recipeData.nutrition?.nutrients?.find(n => n.name === 'Protein')?.amount || 0,
-            carbs: recipeData.nutrition?.nutrients?.find(n => n.name === 'Carbohydrates')?.amount || 0,
-            fat: recipeData.nutrition?.nutrients?.find(n => n.name === 'Fat')?.amount || 0
-          },
-          ingredients: recipeData.extendedIngredients,
-          instructions: recipeData.instructions,
-          readyInMinutes: recipeData.readyInMinutes,
-          servings: recipeData.servings
+        if (recipe) {
+          // Cache in Firestore with spoonacularId as document ID
+          await firebaseService.storeInFirestore('recipes', recipeId, {
+            ...recipe,
+            spoonacularId: recipeId,
+            cachedAt: new Date()
+          });
+        }
+      }
+
+      if (!recipe) {
+        return res.status(404).json({
+          success: false,
+          message: 'Recipe not found'
         });
-        
-        await recipe.save();
       }
 
       res.json({
@@ -86,7 +84,7 @@ class RecipeController {
         data: recipe
       });
     } catch (error) {
-      console.error('Recipe details error:', error);
+      console.error('Get recipe details error:', error);
       res.status(500).json({
         success: false,
         message: 'Failed to get recipe details',
@@ -100,12 +98,21 @@ class RecipeController {
       const { recipeId } = req.params;
       const userId = req.user.id;
 
-      const user = await User.findById(userId);
+      // Get recipe details
+      const recipe = await SpoonacularService.getRecipeDetails(recipeId);
       
-      if (!user.favoriteRecipes.includes(recipeId)) {
-        user.favoriteRecipes.push(recipeId);
-        await user.save();
+      if (!recipe) {
+        return res.status(404).json({
+          success: false,
+          message: 'Recipe not found'
+        });
       }
+
+      // Add to favorites using Firebase service
+      await firebaseService.storeFavoriteRecipe(userId, {
+        id: recipeId,
+        ...recipe
+      });
 
       res.json({
         success: true,
@@ -126,9 +133,7 @@ class RecipeController {
       const { recipeId } = req.params;
       const userId = req.user.id;
 
-      const user = await User.findById(userId);
-      user.favoriteRecipes = user.favoriteRecipes.filter(id => id !== recipeId);
-      await user.save();
+      await firebaseService.removeFavoriteRecipe(userId, recipeId);
 
       res.json({
         success: true,
@@ -147,11 +152,12 @@ class RecipeController {
   async getFavorites(req, res) {
     try {
       const userId = req.user.id;
-      const user = await User.findById(userId).populate('favoriteRecipes');
+      
+      const favoriteRecipes = await firebaseService.getFavoriteRecipes(userId);
 
       res.json({
         success: true,
-        data: user.favoriteRecipes || []
+        data: favoriteRecipes
       });
     } catch (error) {
       console.error('Get favorites error:', error);
@@ -168,14 +174,32 @@ class RecipeController {
       const userId = req.user.id;
       const { diet, exclude } = req.body;
 
-      const user = await User.findById(userId);
-      const targetCalories = user.profile.dailyCalories;
+      // Get user profile
+      const userProfile = await firebaseService.getFromFirestore('users', userId);
+      
+      if (!userProfile) {
+        return res.status(404).json({
+          success: false,
+          message: 'User profile not found'
+        });
+      }
+
+      const targetCalories = userProfile.profile.dailyCalories;
 
       const mealPlan = await SpoonacularService.getMealPlan(
         targetCalories,
         diet,
         exclude
       );
+
+      // Cache meal plan in Firestore
+      await firebaseService.storeInFirestore('mealPlans', `${userId}_${Date.now()}`, {
+        userId,
+        mealPlan,
+        diet,
+        targetCalories,
+        createdAt: new Date()
+      });
 
       res.json({
         success: true,
@@ -195,11 +219,12 @@ class RecipeController {
     try {
       const { ingredients } = req.body;
 
-      const nutritionData = await SpoonacularService.analyzeRecipeNutrition(ingredients);
+      // You can either use Spoonacular or implement your own nutrition analysis
+      const nutrition = await SpoonacularService.analyzeNutrition(ingredients);
 
       res.json({
         success: true,
-        data: nutritionData
+        data: nutrition
       });
     } catch (error) {
       console.error('Nutrition analysis error:', error);
@@ -216,21 +241,27 @@ class RecipeController {
       const userId = req.user.id;
       const recipeData = req.body;
 
-      const recipe = new Recipe({
+      const customRecipe = {
         ...recipeData,
+        userCreated: true,
         createdBy: userId,
-        isCustom: true
-      });
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        ratings: [],
+        averageRating: 0
+      };
 
-      await recipe.save();
+      // Store in Firestore
+      const docId = `custom_${userId}_${Date.now()}`;
+      await firebaseService.storeInFirestore('recipes', docId, customRecipe);
 
       res.status(201).json({
         success: true,
         message: 'Custom recipe created successfully',
-        data: recipe
+        data: { id: docId, ...customRecipe }
       });
     } catch (error) {
-      console.error('Create recipe error:', error);
+      console.error('Create custom recipe error:', error);
       res.status(500).json({
         success: false,
         message: 'Failed to create custom recipe',
@@ -245,29 +276,39 @@ class RecipeController {
       const userId = req.user.id;
       const updates = req.body;
 
-      const recipe = await Recipe.findOne({ 
-        _id: recipeId, 
-        createdBy: userId,
-        isCustom: true 
-      });
-
+      // Get existing recipe
+      const recipe = await firebaseService.getFromFirestore('recipes', recipeId);
+      
       if (!recipe) {
         return res.status(404).json({
           success: false,
-          message: 'Recipe not found or you do not have permission to edit it'
+          message: 'Recipe not found'
         });
       }
 
-      Object.assign(recipe, updates);
-      await recipe.save();
+      // Check if user owns this recipe
+      if (!recipe.userCreated || recipe.createdBy !== userId) {
+        return res.status(403).json({
+          success: false,
+          message: 'You can only update your own recipes'
+        });
+      }
+
+      const updatedRecipe = {
+        ...recipe,
+        ...updates,
+        updatedAt: new Date()
+      };
+
+      await firebaseService.storeInFirestore('recipes', recipeId, updatedRecipe);
 
       res.json({
         success: true,
         message: 'Recipe updated successfully',
-        data: recipe
+        data: updatedRecipe
       });
     } catch (error) {
-      console.error('Update recipe error:', error);
+      console.error('Update custom recipe error:', error);
       res.status(500).json({
         success: false,
         message: 'Failed to update recipe',
@@ -281,25 +322,32 @@ class RecipeController {
       const { recipeId } = req.params;
       const userId = req.user.id;
 
-      const recipe = await Recipe.findOneAndDelete({ 
-        _id: recipeId, 
-        createdBy: userId,
-        isCustom: true 
-      });
-
+      // Get existing recipe
+      const recipe = await firebaseService.getFromFirestore('recipes', recipeId);
+      
       if (!recipe) {
         return res.status(404).json({
           success: false,
-          message: 'Recipe not found or you do not have permission to delete it'
+          message: 'Recipe not found'
         });
       }
+
+      // Check if user owns this recipe
+      if (!recipe.userCreated || recipe.createdBy !== userId) {
+        return res.status(403).json({
+          success: false,
+          message: 'You can only delete your own recipes'
+        });
+      }
+
+      await firebaseService.deleteFromFirestore('recipes', recipeId);
 
       res.json({
         success: true,
         message: 'Recipe deleted successfully'
       });
     } catch (error) {
-      console.error('Delete recipe error:', error);
+      console.error('Delete custom recipe error:', error);
       res.status(500).json({
         success: false,
         message: 'Failed to delete recipe',
@@ -311,10 +359,11 @@ class RecipeController {
   async rateRecipe(req, res) {
     try {
       const { recipeId } = req.params;
-      const { rating, review } = req.body;
       const userId = req.user.id;
+      const { rating, review } = req.body;
 
-      const recipe = await Recipe.findById(recipeId);
+      // Get recipe
+      const recipe = await firebaseService.getFromFirestore('recipes', recipeId);
       
       if (!recipe) {
         return res.status(404).json({
@@ -323,29 +372,41 @@ class RecipeController {
         });
       }
 
-      // Remove existing rating from this user
-      recipe.ratings = recipe.ratings.filter(r => r.userId.toString() !== userId);
-      
-      // Add new rating
-      recipe.ratings.push({
+      // Add or update rating
+      const ratings = recipe.ratings || [];
+      const existingRatingIndex = ratings.findIndex(r => r.userId === userId);
+
+      const newRating = {
         userId,
         rating,
-        review,
+        review: review || '',
         date: new Date()
-      });
+      };
+
+      if (existingRatingIndex !== -1) {
+        ratings[existingRatingIndex] = newRating;
+      } else {
+        ratings.push(newRating);
+      }
 
       // Calculate average rating
-      const avgRating = recipe.ratings.reduce((sum, r) => sum + r.rating, 0) / recipe.ratings.length;
-      recipe.averageRating = avgRating;
+      const averageRating = ratings.reduce((sum, r) => sum + r.rating, 0) / ratings.length;
 
-      await recipe.save();
+      const updatedRecipe = {
+        ...recipe,
+        ratings,
+        averageRating: Math.round(averageRating * 10) / 10,
+        updatedAt: new Date()
+      };
+
+      await firebaseService.storeInFirestore('recipes', recipeId, updatedRecipe);
 
       res.json({
         success: true,
         message: 'Recipe rated successfully',
         data: {
-          averageRating: avgRating,
-          totalRatings: recipe.ratings.length
+          rating: newRating,
+          averageRating: updatedRecipe.averageRating
         }
       });
     } catch (error) {
@@ -361,38 +422,30 @@ class RecipeController {
   async getPersonalizedRecommendations(req, res) {
     try {
       const userId = req.user.id;
-      
-      // Get user profile and preferences
-      const user = await User.findById(userId).populate('favoriteRecipes');
-      const userProfile = user.profile;
 
-      // Get recipes based on user's dietary preferences and goals
-      const recommendations = await SpoonacularService.searchRecipes('', {
-        diet: userProfile.dietaryRestrictions,
-        minCalories: userProfile.dailyCalories / 3 - 200,
-        maxCalories: userProfile.dailyCalories / 3 + 200,
-        number: 10
-      });
+      // Get user profile and favorites
+      const userProfile = await firebaseService.getFromFirestore('users', userId);
+      const favoriteRecipes = await firebaseService.getFavoriteRecipes(userId);
 
-      // Apply AI clustering for better recommendations
-      const clusteredRecommendations = KMeansService.clusterRecipes(
-        recommendations, 
-        userProfile
+      if (!userProfile) {
+        return res.status(404).json({
+          success: false,
+          message: 'User profile not found'
+        });
+      }
+
+      // Get recommendations based on user preferences and favorites
+      const recommendations = await SpoonacularService.getPersonalizedRecommendations(
+        userProfile.profile,
+        favoriteRecipes
       );
 
       res.json({
         success: true,
-        data: clusteredRecommendations,
-        meta: {
-          basedOn: 'Your dietary preferences and nutritional goals',
-          targetCalories: userProfile.dailyCalories / 3,
-          targetProtein: userProfile.dailyProtein / 3,
-          targetCarbs: userProfile.dailyCarbs / 3,
-          targetFat: userProfile.dailyFat / 3
-        }
+        data: recommendations
       });
     } catch (error) {
-      console.error('Recommendations error:', error);
+      console.error('Personalized recommendations error:', error);
       res.status(500).json({
         success: false,
         message: 'Failed to get personalized recommendations',

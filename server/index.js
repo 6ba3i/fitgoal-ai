@@ -6,8 +6,8 @@ const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
-const connectDB = require('./config/database');
-const firebaseAdmin = require('./config/firebase');
+// Initialize Firebase Admin (this will initialize the Firebase app)
+require('./config/firebase');
 
 // Import routes
 const authRoutes = require('./routes/auth.routes');
@@ -18,9 +18,6 @@ const aiRoutes = require('./routes/ai.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-
-// Connect to MongoDB
-connectDB();
 
 // Middleware
 app.use(helmet());
@@ -37,6 +34,19 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({
+    success: true,
+    message: 'FitGoal AI Server is running with Firebase',
+    timestamp: new Date().toISOString(),
+    services: {
+      firebase: 'connected',
+      spoonacular: process.env.SPOONACULAR_API_KEY ? 'configured' : 'not configured'
+    }
+  });
+});
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
@@ -44,12 +54,27 @@ app.use('/api/recipes', recipeRoutes);
 app.use('/api/progress', progressRoutes);
 app.use('/api/ai', aiRoutes);
 
+// 404 handler
+app.use('*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    message: 'Route not found'
+  });
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).send('Something broke!');
+  console.error('Server error:', err);
+  res.status(500).json({
+    success: false,
+    message: 'Internal server error',
+    error: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
+  });
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 FitGoal AI Server running on port ${PORT}`);
+  console.log(`🔥 Firebase configured and ready`);
+  console.log(`🌐 Health check: http://localhost:${PORT}/api/health`);
+  console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
