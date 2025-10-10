@@ -1,3 +1,4 @@
+// client/src/components/Recipes/Recipes.jsx
 import React, { useState, useEffect, useContext } from 'react';
 import { toast } from 'react-toastify';
 import { UserContext } from '../../context/UserContext';
@@ -18,6 +19,7 @@ const Recipes = () => {
   const [recipes, setRecipes] = useState([]);
   const [recommendations, setRecommendations] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [recommendationOffset, setRecommendationOffset] = useState(0);
   const [filters, setFilters] = useState({
     diet: '',
     minCalories: '',
@@ -38,20 +40,27 @@ const Recipes = () => {
     if (saved) {
       setExcludedIngredients(JSON.parse(saved));
     }
+
+    // Load and set offset from localStorage on page load
+    const savedOffset = localStorage.getItem('recommendationOffset');
+    if (savedOffset) {
+      setRecommendationOffset(parseInt(savedOffset));
+    }
   }, []);
 
   useEffect(() => {
     if (activeTab === 'recommended') {
       fetchRecommendations();
     }
-  }, [activeTab, excludedIngredients, userProfile]);
+  }, [activeTab, excludedIngredients, userProfile, recommendationOffset]);
 
   const fetchRecommendations = async () => {
     setLoading(true);
     try {
       const result = await spoonacularService.getPersonalizedRecommendations(
         userProfile, 
-        excludedIngredients
+        excludedIngredients,
+        recommendationOffset
       );
       if (result.success) {
         setRecommendations(result.data);
@@ -62,6 +71,13 @@ const Recipes = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleRefreshRecommendations = () => {
+    const newOffset = recommendationOffset + 12;
+    setRecommendationOffset(newOffset);
+    // Save offset to localStorage so page refresh maintains it
+    localStorage.setItem('recommendationOffset', newOffset.toString());
   };
 
   const handleSearch = async (e) => {
@@ -152,21 +168,20 @@ const Recipes = () => {
   };
 
   const addToMeals = async (recipe) => {
+    // Helper function to safely extract nutrient value
+    const getNutrient = (name) => {
+      return Math.round(
+        recipe.nutrition?.nutrients?.find(n => n.name === name)?.amount || 0
+      );
+    };
+
     const mealData = {
       recipeId: recipe.id,
       recipeName: recipe.title,
-      calories: Math.round(recipe.nutrition?.nutrients?.find(n => n.name === 'Calories')?.amount || 
-                         recipe.nutrition?.calories || 
-                         recipe.calories || 0),
-      protein: Math.round(recipe.nutrition?.nutrients?.find(n => n.name === 'Protein')?.amount || 
-                        recipe.nutrition?.protein || 
-                        recipe.protein || 0),
-      carbs: Math.round(recipe.nutrition?.nutrients?.find(n => n.name === 'Carbohydrates')?.amount || 
-                       recipe.nutrition?.carbs || 
-                       recipe.carbs || 0),
-      fat: Math.round(recipe.nutrition?.nutrients?.find(n => n.name === 'Fat')?.amount || 
-                     recipe.nutrition?.fat || 
-                     recipe.fat || 0),
+      calories: getNutrient('Calories'),
+      protein: getNutrient('Protein'),
+      carbs: getNutrient('Carbohydrates'),
+      fat: getNutrient('Fat'),
       servings: recipe.servings || 1
     };
 
@@ -191,16 +206,16 @@ const Recipes = () => {
     setLoading(true);
     try {
       const result = await spoonacularService.getMealPlan(
-        userProfile.dailyCalories,
+        userProfile,
         filters.diet,
         excludedIngredients.join(',')
       );
 
       if (result.success) {
         setMealPlan(result.data);
-        toast.success('Meal plan generated!');
+        toast.success('Smart meal plan generated with optimal macros!');
       } else {
-        toast.error('Failed to generate meal plan');
+        toast.error(result.error || 'Failed to generate meal plan');
       }
     } catch (error) {
       console.error('Meal plan generation error:', error);
@@ -212,39 +227,53 @@ const Recipes = () => {
 
   const RecipeCard = ({ recipe }) => {
     const isFavorited = favoriteRecipes.some(r => r.id === recipe.id);
-    const calories = recipe.nutrition?.nutrients?.find(n => n.name === 'Calories')?.amount || 
-                    recipe.nutrition?.calories || 
-                    recipe.calories || 0;
-    const protein = recipe.nutrition?.nutrients?.find(n => n.name === 'Protein')?.amount || 
-                   recipe.nutrition?.protein || 
-                   recipe.protein || 0;
+    
+    // Helper function to safely extract nutrient value
+    const getNutrient = (name) => {
+      return Math.round(
+        recipe.nutrition?.nutrients?.find(n => n.name === name)?.amount || 0
+      );
+    };
+
+    const calories = getNutrient('Calories');
+    const protein = getNutrient('Protein');
+    const readyInMinutes = recipe.readyInMinutes || 30;
 
     return (
       <div className="recipe-card glass-container">
-        <div className="recipe-image" style={{ backgroundImage: `url(${recipe.image})` }}>
-          <button 
-            className="favorite-btn"
-            onClick={() => toggleFavorite(recipe)}
+        <div className="recipe-image-container">
+          <div 
+            className="recipe-image" 
+            style={{ backgroundImage: `url(${recipe.image})` }}
           >
-            <i className={`fas fa-heart ${isFavorited ? 'text-danger' : 'text-white'}`}></i>
-          </button>
+            <button 
+              className="favorite-btn"
+              onClick={() => toggleFavorite(recipe)}
+            >
+              <i className={`fas fa-heart ${isFavorited ? 'text-danger' : 'text-white'}`}></i>
+            </button>
+          </div>
         </div>
+        
         <div className="recipe-content">
-          <h5 className="recipe-title text-white">{recipe.title}</h5>
-          <div className="recipe-stats">
-            <div className="stat">
-              <i className="fas fa-fire text-warning"></i>
-              <span>{Math.round(calories)} cal</span>
+          <h5 className="recipe-title">{recipe.title}</h5>
+          
+          {/* Horizontal stats layout */}
+          <div className="recipe-stats-horizontal">
+            <div className="stat-item">
+              <i className="fas fa-fire"></i>
+              <span>{calories} cal</span>
             </div>
-            <div className="stat">
-              <i className="fas fa-drumstick-bite text-info"></i>
-              <span>{Math.round(protein)}g protein</span>
+            <div className="stat-item">
+              <i className="fas fa-dumbbell"></i>
+              <span>{protein}g</span>
             </div>
-            <div className="stat">
-              <i className="fas fa-clock text-success"></i>
-              <span>{recipe.readyInMinutes || 30} min</span>
+            <div className="stat-item">
+              <i className="fas fa-clock"></i>
+              <span>{readyInMinutes} min</span>
             </div>
           </div>
+          
           <div className="recipe-actions">
             <button 
               className="btn btn-sm btn-primary"
@@ -292,116 +321,126 @@ const Recipes = () => {
                     className={`ingredient-tag ${excludedIngredients.includes(ingredient) ? 'excluded' : ''}`}
                     onClick={() => toggleIngredientExclusion(ingredient)}
                   >
+                    {excludedIngredients.includes(ingredient) && <i className="fas fa-times me-1"></i>}
                     {ingredient}
-                    {excludedIngredients.includes(ingredient) && (
-                      <i className="fas fa-times-circle ms-2"></i>
-                    )}
                   </button>
                 ))}
               </div>
 
               {excludedIngredients.length > 0 && (
-                <div className="mt-4">
-                  <button 
-                    className="btn btn-outline-light btn-sm"
-                    onClick={clearAllExclusions}
-                  >
-                    Clear All Exclusions
-                  </button>
-                  <p className="text-white-50 mt-2 small">
-                    {excludedIngredients.length} ingredient(s) excluded
-                  </p>
-                </div>
+                <button 
+                  className="btn btn-outline-danger mt-3"
+                  onClick={clearAllExclusions}
+                >
+                  Clear All
+                </button>
               )}
-            </div>
-
-            <div className="modal-footer">
-              <button 
-                className="btn btn-primary w-100"
-                onClick={() => {
-                  setShowPersonalizationModal(false);
-                  fetchRecommendations();
-                  toast.success('Preferences saved!');
-                }}
-              >
-                Save Preferences
-              </button>
             </div>
           </div>
         </div>
       )}
 
-      <div className="recipes-header mb-4">
-        <h1 className="text-white">Discover Recipes</h1>
-        <p className="text-white-50">Find delicious recipes tailored to your nutritional goals</p>
+      {/* Header */}
+      <div className="recipes-header glass-container mb-4">
+        <h2 className="text-white mb-0">
+          <i className="fas fa-utensils me-2"></i>
+          Recipe Discovery
+        </h2>
       </div>
 
       {/* Tab Navigation */}
-      <div className="recipes-nav mb-4">
+      <div className="tabs-container glass-container mb-4">
         <button 
-          className={`recipes-nav-btn ${activeTab === 'search' ? 'active' : ''}`}
+          className={`tab-btn ${activeTab === 'search' ? 'active' : ''}`}
           onClick={() => setActiveTab('search')}
         >
-          <i className="fas fa-search me-2"></i>Search
+          <i className="fas fa-search me-2"></i>
+          Search
         </button>
         <button 
-          className={`recipes-nav-btn ${activeTab === 'recommended' ? 'active' : ''}`}
+          className={`tab-btn ${activeTab === 'recommended' ? 'active' : ''}`}
           onClick={() => setActiveTab('recommended')}
         >
-          <i className="fas fa-star me-2"></i>Recommended
+          <i className="fas fa-star me-2"></i>
+          Recommended
         </button>
         <button 
-          className={`recipes-nav-btn ${activeTab === 'favorites' ? 'active' : ''}`}
+          className={`tab-btn ${activeTab === 'favorites' ? 'active' : ''}`}
           onClick={() => setActiveTab('favorites')}
         >
-          <i className="fas fa-heart me-2"></i>Favorites
+          <i className="fas fa-heart me-2"></i>
+          Favorites
         </button>
         <button 
-          className={`recipes-nav-btn ${activeTab === 'mealplan' ? 'active' : ''}`}
+          className={`tab-btn ${activeTab === 'mealplan' ? 'active' : ''}`}
           onClick={() => setActiveTab('mealplan')}
         >
-          <i className="fas fa-calendar me-2"></i>Meal Plan
+          <i className="fas fa-calendar-alt me-2"></i>
+          Meal Plan
         </button>
       </div>
 
       {/* Search Tab */}
       {activeTab === 'search' && (
         <>
-          <div className="glass-container p-4 mb-4">
-            <form onSubmit={handleSearch}>
-              <div className="row">
-                <div className="col-md-6 mb-3">
-                  <input 
-                    type="text"
-                    className="form-control glass-input"
-                    placeholder="Search recipes..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                </div>
-                <div className="col-md-3 mb-3">
-                  <select 
-                    className="form-select glass-input"
-                    value={filters.diet}
-                    onChange={(e) => setFilters({...filters, diet: e.target.value})}
-                  >
-                    <option value="">Any Diet</option>
-                    <option value="gluten free">Gluten Free</option>
-                    <option value="ketogenic">Ketogenic</option>
-                    <option value="vegetarian">Vegetarian</option>
-                    <option value="vegan">Vegan</option>
-                    <option value="paleo">Paleo</option>
-                  </select>
-                </div>
-                <div className="col-md-3 mb-3">
-                  <button type="submit" className="btn btn-primary w-100" disabled={loading}>
-                    {loading ? 'Searching...' : 'Search'}
-                  </button>
-                </div>
+          {/* Search Bar */}
+          <form onSubmit={handleSearch} className="glass-container p-4 mb-4">
+            <div className="row g-3">
+              <div className="col-md-12">
+                <input
+                  type="text"
+                  className="form-control glass-input"
+                  placeholder="Search for recipes... (e.g., pasta, chicken, vegan)"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
               </div>
-            </form>
-          </div>
+              
+              <div className="col-md-3">
+                <select 
+                  className="form-select glass-input"
+                  value={filters.diet}
+                  onChange={(e) => setFilters({...filters, diet: e.target.value})}
+                >
+                  <option value="">Any Diet</option>
+                  <option value="vegetarian">Vegetarian</option>
+                  <option value="vegan">Vegan</option>
+                  <option value="ketogenic">Keto</option>
+                  <option value="paleo">Paleo</option>
+                  <option value="gluten free">Gluten Free</option>
+                </select>
+              </div>
 
+              <div className="col-md-3">
+                <input
+                  type="number"
+                  className="form-control glass-input"
+                  placeholder="Min Calories"
+                  value={filters.minCalories}
+                  onChange={(e) => setFilters({...filters, minCalories: e.target.value})}
+                />
+              </div>
+
+              <div className="col-md-3">
+                <input
+                  type="number"
+                  className="form-control glass-input"
+                  placeholder="Max Calories"
+                  value={filters.maxCalories}
+                  onChange={(e) => setFilters({...filters, maxCalories: e.target.value})}
+                />
+              </div>
+
+              <div className="col-md-3">
+                <button type="submit" className="btn btn-primary w-100" disabled={loading}>
+                  {loading ? <span className="spinner-border spinner-border-sm me-2"></span> : <i className="fas fa-search me-2"></i>}
+                  Search
+                </button>
+              </div>
+            </div>
+          </form>
+
+          {/* Results */}
           <div className="recipes-grid">
             {loading && (
               <div className="text-center w-100">
@@ -413,9 +452,9 @@ const Recipes = () => {
             {!loading && recipes.map(recipe => (
               <RecipeCard key={recipe.id} recipe={recipe} />
             ))}
-            {!loading && recipes.length === 0 && searchQuery && (
+            {!loading && recipes.length === 0 && (
               <div className="empty-state">
-                <p className="text-white-50">No recipes found. Try a different search.</p>
+                <p className="text-white-50">Start searching for delicious recipes!</p>
               </div>
             )}
           </div>
@@ -434,13 +473,23 @@ const Recipes = () => {
                   : 'No ingredients excluded'}
               </p>
             </div>
-            <button 
-              className="btn btn-outline-light"
-              onClick={() => setShowPersonalizationModal(true)}
-            >
-              <i className="fas fa-sliders-h me-2"></i>
-              Customize
-            </button>
+            <div className="d-flex gap-2">
+              <button 
+                className="btn btn-outline-light"
+                onClick={() => setShowPersonalizationModal(true)}
+              >
+                <i className="fas fa-sliders-h me-2"></i>
+                Customize
+              </button>
+              <button 
+                className="btn btn-primary"
+                onClick={handleRefreshRecommendations}
+                disabled={loading}
+              >
+                <i className="fas fa-sync-alt me-2"></i>
+                Refresh
+              </button>
+            </div>
           </div>
 
           <div className="recipes-grid">
@@ -531,6 +580,57 @@ const Recipes = () => {
               <img src={selectedRecipe.image} alt={selectedRecipe.title} className="w-100 rounded mb-3" />
             )}
             <div className="recipe-modal-content">
+              {/* Macronutrients Display */}
+              <div className="macros-grid mb-4">
+                <div className="macro-card">
+                  <div className="macro-icon">
+                    <i className="fas fa-fire text-warning"></i>
+                  </div>
+                  <div className="macro-info">
+                    <span className="macro-label">Calories</span>
+                    <span className="macro-value">
+                      {Math.round(selectedRecipe.nutrition?.nutrients?.find(n => n.name === 'Calories')?.amount || 0)}
+                    </span>
+                  </div>
+                </div>
+                
+                <div className="macro-card">
+                  <div className="macro-icon">
+                    <i className="fas fa-dumbbell text-info"></i>
+                  </div>
+                  <div className="macro-info">
+                    <span className="macro-label">Protein</span>
+                    <span className="macro-value">
+                      {Math.round(selectedRecipe.nutrition?.nutrients?.find(n => n.name === 'Protein')?.amount || 0)}g
+                    </span>
+                  </div>
+                </div>
+                
+                <div className="macro-card">
+                  <div className="macro-icon">
+                    <i className="fas fa-bread-slice text-success"></i>
+                  </div>
+                  <div className="macro-info">
+                    <span className="macro-label">Carbs</span>
+                    <span className="macro-value">
+                      {Math.round(selectedRecipe.nutrition?.nutrients?.find(n => n.name === 'Carbohydrates')?.amount || 0)}g
+                    </span>
+                  </div>
+                </div>
+                
+                <div className="macro-card">
+                  <div className="macro-icon">
+                    <i className="fas fa-droplet text-danger"></i>
+                  </div>
+                  <div className="macro-info">
+                    <span className="macro-label">Fat</span>
+                    <span className="macro-value">
+                      {Math.round(selectedRecipe.nutrition?.nutrients?.find(n => n.name === 'Fat')?.amount || 0)}g
+                    </span>
+                  </div>
+                </div>
+              </div>
+
               {selectedRecipe.summary && (
                 <div dangerouslySetInnerHTML={{ __html: selectedRecipe.summary }} 
                      className="text-white-50 mb-3" />
