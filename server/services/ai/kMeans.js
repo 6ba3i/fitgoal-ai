@@ -95,10 +95,10 @@ class KMeansService {
 
         // Assign label based on score
         let label, description;
-        if (score >= 85) {
+        if (score >= 70) {
           label = 'Perfect Match';
           description = 'These recipes are ideal for your goals!';
-        } else if (score >= 70) {
+        } else if (score >= 45) {
           label = 'Good Match';
           description = 'Good options with minor adjustments needed.';
         } else {

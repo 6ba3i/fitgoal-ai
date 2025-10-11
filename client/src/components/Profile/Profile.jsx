@@ -13,7 +13,6 @@ const Profile = () => {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('personal');
   const [editMode, setEditMode] = useState(false);
-  const [stats, setStats] = useState(null);
   const [macros, setMacros] = useState(null);
   const [formData, setFormData] = useState({
     displayName: '',
@@ -46,23 +45,8 @@ const Profile = () => {
       // Calculate macros based on profile
       const calculatedMacros = firebaseAuthService.calculateMacros(userProfile);
       setMacros(calculatedMacros);
-      
-      fetchUserStats();
     }
   }, [user, userProfile]);
-
-  const fetchUserStats = async () => {
-    if (!user) return;
-    
-    try {
-      const statsData = await firebaseDataService.getUserStats(user.uid);
-      if (statsData.success) {
-        setStats(statsData.data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch user stats:', error);
-    }
-  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -121,6 +105,20 @@ const Profile = () => {
     toast.info('Logged out successfully');
   };
 
+  const calculateBMI = () => {
+    if (!formData.weight || !formData.height) return '0.0';
+    const heightInMeters = formData.height / 100;
+    return (formData.weight / (heightInMeters * heightInMeters)).toFixed(1);
+  };
+
+  const getBMICategory = () => {
+    const bmi = parseFloat(calculateBMI());
+    if (bmi < 18.5) return 'Underweight';
+    if (bmi < 25) return 'Normal weight';
+    if (bmi < 30) return 'Overweight';
+    return 'Obese';
+  };
+
   return (
     <div className="container profile-container">
       <div className="profile-header mb-4">
@@ -128,24 +126,24 @@ const Profile = () => {
         <p className="text-white-50">Manage your personal information and settings</p>
       </div>
 
-      {/* Profile Navigation */}
-      <div className="profile-nav mb-4">
+      {/* Tabs - REMOVED STATISTICS TAB */}
+      <div className="profile-tabs">
         <button 
-          className={`profile-nav-btn ${activeTab === 'personal' ? 'active' : ''}`}
+          className={`tab-button ${activeTab === 'personal' ? 'active' : ''}`}
           onClick={() => setActiveTab('personal')}
         >
           <i className="fas fa-user me-2"></i>
           Personal Info
         </button>
         <button 
-          className={`profile-nav-btn ${activeTab === 'stats' ? 'active' : ''}`}
-          onClick={() => setActiveTab('stats')}
+          className={`tab-button ${activeTab === 'macros' ? 'active' : ''}`}
+          onClick={() => setActiveTab('macros')}
         >
-          <i className="fas fa-chart-bar me-2"></i>
-          Statistics
+          <i className="fas fa-chart-pie me-2"></i>
+          Macros
         </button>
         <button 
-          className={`profile-nav-btn ${activeTab === 'settings' ? 'active' : ''}`}
+          className={`tab-button ${activeTab === 'settings' ? 'active' : ''}`}
           onClick={() => setActiveTab('settings')}
         >
           <i className="fas fa-cog me-2"></i>
@@ -156,20 +154,30 @@ const Profile = () => {
       {/* Personal Information Tab */}
       {activeTab === 'personal' && (
         <div className="glass-container p-4">
-          <div className="d-flex justify-content-between align-items-center mb-4">
+          <div className="profile-section-header">
             <h3 className="text-white">Personal Information</h3>
-            <button 
-              className="btn btn-outline-light"
-              onClick={() => setEditMode(!editMode)}
-            >
-              <i className={`fas fa-${editMode ? 'times' : 'edit'} me-2`}></i>
-              {editMode ? 'Cancel' : 'Edit'}
-            </button>
+            {!editMode ? (
+              <button 
+                className="btn btn-outline-light edit-button"
+                onClick={() => setEditMode(true)}
+              >
+                <i className="fas fa-edit me-2"></i>
+                Edit Profile
+              </button>
+            ) : (
+              <button 
+                className="btn btn-outline-light cancel-button"
+                onClick={() => setEditMode(false)}
+              >
+                <i className="fas fa-times me-2"></i>
+                Cancel
+              </button>
+            )}
           </div>
-
+          
           <form onSubmit={handleSubmit}>
-            <div className="row">
-              <div className="col-md-6 mb-3">
+            <div className="row mb-3">
+              <div className="col-md-6">
                 <label className="form-label text-white">Display Name</label>
                 <input 
                   type="text"
@@ -180,8 +188,7 @@ const Profile = () => {
                   disabled={!editMode}
                 />
               </div>
-
-              <div className="col-md-6 mb-3">
+              <div className="col-md-6">
                 <label className="form-label text-white">Email</label>
                 <input 
                   type="email"
@@ -191,23 +198,23 @@ const Profile = () => {
                   disabled
                 />
               </div>
+            </div>
 
-              <div className="col-md-3 mb-3">
-                <label className="form-label text-white">Weight (kg)</label>
+            <div className="row mb-3">
+              <div className="col-md-6">
+                <label className="form-label text-white">Current Weight (kg)</label>
                 <input 
                   type="number"
                   name="weight"
                   value={formData.weight}
                   onChange={handleChange}
                   className="form-control glass-input"
-                  disabled={!editMode}
                   step="0.1"
-                  min="20"
-                  max="500"
+                  disabled={!editMode}
+                  required
                 />
               </div>
-
-              <div className="col-md-3 mb-3">
+              <div className="col-md-6">
                 <label className="form-label text-white">Height (cm)</label>
                 <input 
                   type="number"
@@ -216,12 +223,13 @@ const Profile = () => {
                   onChange={handleChange}
                   className="form-control glass-input"
                   disabled={!editMode}
-                  min="50"
-                  max="300"
+                  required
                 />
               </div>
+            </div>
 
-              <div className="col-md-3 mb-3">
+            <div className="row mb-3">
+              <div className="col-md-6">
                 <label className="form-label text-white">Age</label>
                 <input 
                   type="number"
@@ -230,12 +238,10 @@ const Profile = () => {
                   onChange={handleChange}
                   className="form-control glass-input"
                   disabled={!editMode}
-                  min="10"
-                  max="120"
+                  required
                 />
               </div>
-
-              <div className="col-md-3 mb-3">
+              <div className="col-md-6">
                 <label className="form-label text-white">Gender</label>
                 <select 
                   name="gender"
@@ -243,46 +249,51 @@ const Profile = () => {
                   onChange={handleChange}
                   className="form-select glass-input"
                   disabled={!editMode}
+                  required
                 >
                   <option value="male">Male</option>
                   <option value="female">Female</option>
                   <option value="other">Other</option>
                 </select>
               </div>
+            </div>
 
-              <div className="col-md-4 mb-3">
-                <label className="form-label text-white">Activity Level</label>
-                <select 
-                  name="activityLevel"
-                  value={formData.activityLevel}
-                  onChange={handleChange}
-                  className="form-select glass-input"
-                  disabled={!editMode}
-                >
-                  <option value="sedentary">Sedentary</option>
-                  <option value="light">Lightly Active</option>
-                  <option value="moderate">Moderately Active</option>
-                  <option value="active">Very Active</option>
-                  <option value="veryActive">Extremely Active</option>
-                </select>
-              </div>
+            <div className="mb-3">
+              <label className="form-label text-white">Activity Level</label>
+              <select 
+                name="activityLevel"
+                value={formData.activityLevel}
+                onChange={handleChange}
+                className="form-select glass-input"
+                disabled={!editMode}
+                required
+              >
+                <option value="sedentary">Sedentary (little or no exercise)</option>
+                <option value="light">Light (1-3 days/week)</option>
+                <option value="moderate">Moderate (3-5 days/week)</option>
+                <option value="active">Active (6-7 days/week)</option>
+                <option value="very_active">Very Active (2x/day)</option>
+              </select>
+            </div>
 
-              <div className="col-md-4 mb-3">
-                <label className="form-label text-white">Goal</label>
-                <select 
-                  name="goal"
-                  value={formData.goal}
-                  onChange={handleChange}
-                  className="form-select glass-input"
-                  disabled={!editMode}
-                >
-                  <option value="lose">Lose Weight</option>
-                  <option value="maintain">Maintain Weight</option>
-                  <option value="gain">Gain Weight</option>
-                </select>
-              </div>
+            <div className="mb-3">
+              <label className="form-label text-white">Goal</label>
+              <select 
+                name="goal"
+                value={formData.goal}
+                onChange={handleChange}
+                className="form-select glass-input"
+                disabled={!editMode}
+                required
+              >
+                <option value="lose">Lose Weight</option>
+                <option value="maintain">Maintain Weight</option>
+                <option value="gain">Gain Weight</option>
+              </select>
+            </div>
 
-              <div className="col-md-4 mb-3">
+            <div className="row mb-3">
+              <div className="col-md-6">
                 <label className="form-label text-white">Target Weight (kg)</label>
                 <input 
                   type="number"
@@ -290,19 +301,30 @@ const Profile = () => {
                   value={formData.targetWeight}
                   onChange={handleChange}
                   className="form-control glass-input"
-                  disabled={!editMode}
                   step="0.1"
-                  min="20"
-                  max="500"
+                  disabled={!editMode}
+                  required
+                />
+              </div>
+              <div className="col-md-6">
+                <label className="form-label text-white">Target Date</label>
+                <input 
+                  type="date"
+                  name="targetDate"
+                  value={formData.targetDate}
+                  onChange={handleChange}
+                  className="form-control glass-input"
+                  disabled={!editMode}
+                  required
                 />
               </div>
             </div>
 
             {editMode && (
-              <div className="mt-4">
+              <div className="d-flex gap-2">
                 <button 
                   type="submit" 
-                  className="btn btn-primary me-2"
+                  className="btn btn-primary save-button"
                   disabled={loading}
                 >
                   {loading ? 'Saving...' : 'Save Changes'}
@@ -317,119 +339,68 @@ const Profile = () => {
               </div>
             )}
           </form>
+        </div>
+      )}
 
-          {/* Calculated Macros */}
-          {macros && (
-            <div className="mt-4 p-3 macro-display">
-              <h5 className="text-white mb-3">Your Daily Targets</h5>
-              <div className="row">
-                <div className="col-md-3">
-                  <div className="macro-item">
-                    <span className="macro-label">Calories</span>
-                    <span className="macro-value">{macros.dailyCalories}</span>
-                  </div>
+      {/* Macros Tab */}
+      {activeTab === 'macros' && macros && (
+        <div className="glass-container p-4">
+          <h3 className="text-white mb-4">Your Daily Macros</h3>
+          <div className="row">
+            <div className="col-md-3 mb-4">
+              <div className="macro-card-profile">
+                <div className="macro-icon">
+                  <i className="fas fa-fire"></i>
                 </div>
-                <div className="col-md-3">
-                  <div className="macro-item">
-                    <span className="macro-label">Protein</span>
-                    <span className="macro-value">{macros.dailyProtein}g</span>
-                  </div>
+                <div className="macro-value">{macros?.calories || 0}</div>
+                <div className="macro-label">Calories</div>
+              </div>
+            </div>
+
+            <div className="col-md-3 mb-4">
+              <div className="macro-card-profile">
+                <div className="macro-icon protein">
+                  <i className="fas fa-drumstick-bite"></i>
                 </div>
-                <div className="col-md-3">
-                  <div className="macro-item">
-                    <span className="macro-label">Carbs</span>
-                    <span className="macro-value">{macros.dailyCarbs}g</span>
-                  </div>
+                <div className="macro-value">{macros?.protein || 0}g</div>
+                <div className="macro-label">Protein</div>
+              </div>
+            </div>
+
+            <div className="col-md-3 mb-4">
+              <div className="macro-card-profile">
+                <div className="macro-icon carbs">
+                  <i className="fas fa-bread-slice"></i>
                 </div>
-                <div className="col-md-3">
-                  <div className="macro-item">
-                    <span className="macro-label">Fat</span>
-                    <span className="macro-value">{macros.dailyFat}g</span>
-                  </div>
+                <div className="macro-value">{macros?.carbs || 0}g</div>
+                <div className="macro-label">Carbs</div>
+              </div>
+            </div>
+
+            <div className="col-md-3 mb-4">
+              <div className="macro-card-profile">
+                <div className="macro-icon fat">
+                  <i className="fas fa-cheese"></i>
+                </div>
+                <div className="macro-value">{macros?.fat || 0}g</div>
+                <div className="macro-label">Fat</div>
+              </div>
+            </div>
+          </div>
+
+          {/* BMI Display */}
+          {formData.weight && formData.height && (
+            <div className="bmi-display mt-4">
+              <h5 className="text-white mb-3">Body Mass Index (BMI)</h5>
+              <div className="bmi-card">
+                <div className="bmi-value">{calculateBMI()}</div>
+                <div className="bmi-info">
+                  <div className="bmi-category">{getBMICategory()}</div>
+                  <div className="text-white-50">Based on your height and weight</div>
                 </div>
               </div>
             </div>
           )}
-        </div>
-      )}
-
-      {/* Statistics Tab */}
-      {activeTab === 'stats' && stats && (
-        <div className="glass-container p-4">
-          <h3 className="text-white mb-4">Your Statistics</h3>
-          <div className="row">
-            <div className="col-md-4 mb-4">
-              <div className="stat-card-profile">
-                <div className="stat-icon">
-                  <i className="fas fa-weight"></i>
-                </div>
-                <div className="stat-content">
-                  <div className="stat-value">{stats.currentWeight || 0} kg</div>
-                  <div className="stat-label">Current Weight</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="col-md-4 mb-4">
-              <div className="stat-card-profile">
-                <div className="stat-icon">
-                  <i className="fas fa-trending-down"></i>
-                </div>
-                <div className="stat-content">
-                  <div className="stat-value">{stats.weightChange || 0} kg</div>
-                  <div className="stat-label">Weight Change</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="col-md-4 mb-4">
-              <div className="stat-card-profile">
-                <div className="stat-icon">
-                  <i className="fas fa-calendar-check"></i>
-                </div>
-                <div className="stat-content">
-                  <div className="stat-value">{stats.streakDays || 0} days</div>
-                  <div className="stat-label">Current Streak</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="col-md-4 mb-4">
-              <div className="stat-card-profile">
-                <div className="stat-icon">
-                  <i className="fas fa-dumbbell"></i>
-                </div>
-                <div className="stat-content">
-                  <div className="stat-value">{stats.totalWorkouts || 0}</div>
-                  <div className="stat-label">Workouts Completed</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="col-md-4 mb-4">
-              <div className="stat-card-profile">
-                <div className="stat-icon">
-                  <i className="fas fa-utensils"></i>
-                </div>
-                <div className="stat-content">
-                  <div className="stat-value">{stats.favoriteRecipesCount || 0}</div>
-                  <div className="stat-label">Favorite Recipes</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="col-md-4 mb-4">
-              <div className="stat-card-profile">
-                <div className="stat-icon">
-                  <i className="fas fa-calculator"></i>
-                </div>
-                <div className="stat-content">
-                  <div className="stat-value">{macros?.bmr || 0}</div>
-                  <div className="stat-label">BMR (kcal)</div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       )}
 

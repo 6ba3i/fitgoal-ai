@@ -163,7 +163,6 @@ const Dashboard = () => {
     const { predictions, trend } = weightPrediction;
     const target = userProfile?.targetWeight || 0;
     
-    // ✅ FIX: Properly format dates from predictions
     const dates = predictions.map(p => {
       const date = new Date(p.date);
       return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -176,7 +175,6 @@ const Dashboard = () => {
         trigger: 'axis',
         backgroundColor: 'rgba(0, 0, 0, 0.8)',
         textStyle: { color: '#fff' },
-        // ✅ FIX: Clean tooltip formatter - only date and weight
         formatter: (params) => {
           if (!params || params.length === 0) return '';
           const param = params[0];
@@ -306,7 +304,6 @@ const Dashboard = () => {
     };
   };
 
-  // ✅ FIX: Better AI insights based on actual trend direction
   const getAIInsightMessage = () => {
     if (!weightPrediction?.trend) return 'Keep logging your progress to see AI insights!';
     
@@ -314,7 +311,6 @@ const Dashboard = () => {
     const direction = trend.direction;
     const onTrack = trend.onTrack;
     
-    // Check if user's goal aligns with trend
     const userGoal = userProfile?.goal || 'maintain';
     
     if (direction === 'losing') {
@@ -365,7 +361,7 @@ const Dashboard = () => {
               <h5 className="stat-label">Current Weight</h5>
               <h3 className="stat-value">{parseFloat(stats?.currentWeight || userProfile?.weight || 0).toFixed(1)} kg</h3>
               <small className="stat-change text-success">
-                {stats?.weightChange > 0 ? '+' : ''}{parseFloat(stats?.weightChange || 0).toFixed(1)} kg this week
+                {stats?.weightChange > 0 ? '+' : ''}{parseFloat(stats?.weightChange || 0).toFixed(1)} kg
               </small>
             </div>
           </div>
@@ -373,12 +369,12 @@ const Dashboard = () => {
 
         <div className="col-md-3 mb-3">
           <div className="glass-container stat-card">
-            <div className="stat-icon bg-success"><i className="fas fa-fire"></i></div>
+            <div className="stat-icon"><i className="fas fa-fire"></i></div>
             <div className="stat-content">
-              <h5 className="stat-label">Today's Calories</h5>
+              <h5 className="stat-label">Calories Today</h5>
               <h3 className="stat-value">{dailyIntake?.calories || 0}</h3>
               <small className="stat-change">
-                / {macros?.calories || 2000} cal
+                Goal: {macros?.calories || 0} cal
               </small>
             </div>
           </div>
@@ -386,145 +382,142 @@ const Dashboard = () => {
 
         <div className="col-md-3 mb-3">
           <div className="glass-container stat-card">
-            <div className="stat-icon bg-warning"><i className="fas fa-chart-line"></i></div>
+            <div className="stat-icon"><i className="fas fa-calendar-check"></i></div>
             <div className="stat-content">
-              <h5 className="stat-label">Avg Calories</h5>
-              <h3 className="stat-value">{Math.round(stats?.averageCalories || 0)}</h3>
-              <small className="stat-change">Last 7 days</small>
+              <h5 className="stat-label">Streak</h5>
+              <h3 className="stat-value">{stats?.streakDays || 0} days</h3>
+              <small className="stat-change">Keep it up!</small>
             </div>
           </div>
         </div>
 
         <div className="col-md-3 mb-3">
           <div className="glass-container stat-card">
-            <div className="stat-icon bg-info"><i className="fas fa-trophy"></i></div>
+            <div className="stat-icon"><i className="fas fa-chart-line"></i></div>
             <div className="stat-content">
-              <h5 className="stat-label">Streak</h5>
-              <h3 className="stat-value">{stats?.streak || 0}</h3>
-              <small className="stat-change">Days logging</small>
+              <h5 className="stat-label">Progress</h5>
+              <h3 className="stat-value">
+                {userProfile?.targetWeight && stats.currentWeight 
+                  ? Math.round(Math.min(100, (1 - Math.abs(stats.currentWeight - userProfile.targetWeight) / 
+                    Math.abs(userProfile.weight - userProfile.targetWeight || 1)) * 100))
+                  : 0}%
+              </h3>
+              <small className="stat-change">To Goal</small>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Charts Row */}
+      {/* Macros Cards + Today's Meals */}
       <div className="row mb-4">
-        <div className="col-md-8 mb-3">
-          <div className="glass-container p-4">
-            <h4 className="text-white mb-3">
-              <i className="fas fa-robot me-2"></i>
-              AI Weight Prediction (30 Days)
-            </h4>
-            {weightPrediction && weightPrediction.predictions ? (
-              <>
-                <ReactECharts 
-                  option={getWeightPredictionChartOption()} 
-                  style={{ height: '350px' }} 
-                />
-                <div className="mt-3 p-3 bg-dark bg-opacity-25 rounded">
-                  <h6 className="text-white mb-2">
-                    <i className="fas fa-lightbulb me-2"></i>
-                    AI Insights
-                  </h6>
-                  <span className="text-white-50">
-                    {getAIInsightMessage()}
-                  </span>
+        {/* Macros - Left Side */}
+        <div className="col-lg-8 mb-3">
+          <div className="row">
+            <div className="col-md-4 mb-3">
+              <div className="glass-container macro-card-large">
+                <div className="macro-header-large">
+                  <div className="macro-icon-large protein-icon">
+                    <i className="fas fa-drumstick-bite"></i>
+                  </div>
+                  <div className="macro-info">
+                    <span className="macro-label-large">Protein</span>
+                    <span className="macro-value-large">
+                      {dailyIntake?.protein || 0}g <span className="text-white-50">/ {macros?.protein || 0}g</span>
+                    </span>
+                  </div>
                 </div>
-              </>
-            ) : (
-              <div className="text-center text-white-50 py-5">
-                <i className="fas fa-chart-line fa-3x mb-3 opacity-50"></i>
-                <p>Log at least 2 progress entries to see AI predictions</p>
-                {predictionLoading && (
-                  <small className="text-white-50 d-block mt-2">
-                    <span className="spinner-border spinner-border-sm me-2"></span>
-                    Loading predictions...
-                  </small>
-                )}
+                <div className="macro-progress-container">
+                  <div className="macro-progress-bar">
+                    <div 
+                      className="macro-progress-fill protein" 
+                      style={{ width: `${Math.min(100, ((dailyIntake?.protein || 0) / (macros?.protein || 1)) * 100)}%` }}
+                    >
+                      <span className="progress-percentage">
+                        {Math.round(((dailyIntake?.protein || 0) / (macros?.protein || 1)) * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                  <div className="macro-remaining">
+                    {Math.max(0, (macros?.protein || 0) - (dailyIntake?.protein || 0))}g remaining
+                  </div>
+                </div>
               </div>
-            )}
+            </div>
+
+            <div className="col-md-4 mb-3">
+              <div className="glass-container macro-card-large">
+                <div className="macro-header-large">
+                  <div className="macro-icon-large carbs-icon">
+                    <i className="fas fa-bread-slice"></i>
+                  </div>
+                  <div className="macro-info">
+                    <span className="macro-label-large">Carbs</span>
+                    <span className="macro-value-large">
+                      {dailyIntake?.carbs || 0}g <span className="text-white-50">/ {macros?.carbs || 0}g</span>
+                    </span>
+                  </div>
+                </div>
+                <div className="macro-progress-container">
+                  <div className="macro-progress-bar">
+                    <div 
+                      className="macro-progress-fill carbs" 
+                      style={{ width: `${Math.min(100, ((dailyIntake?.carbs || 0) / (macros?.carbs || 1)) * 100)}%` }}
+                    >
+                      <span className="progress-percentage">
+                        {Math.round(((dailyIntake?.carbs || 0) / (macros?.carbs || 1)) * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                  <div className="macro-remaining">
+                    {Math.max(0, (macros?.carbs || 0) - (dailyIntake?.carbs || 0))}g remaining
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="col-md-4 mb-3">
+              <div className="glass-container macro-card-large">
+                <div className="macro-header-large">
+                  <div className="macro-icon-large fat-icon">
+                    <i className="fas fa-cheese"></i>
+                  </div>
+                  <div className="macro-info">
+                    <span className="macro-label-large">Fat</span>
+                    <span className="macro-value-large">
+                      {dailyIntake?.fat || 0}g <span className="text-white-50">/ {macros?.fat || 0}g</span>
+                    </span>
+                  </div>
+                </div>
+                <div className="macro-progress-container">
+                  <div className="macro-progress-bar">
+                    <div 
+                      className="macro-progress-fill fat" 
+                      style={{ width: `${Math.min(100, ((dailyIntake?.fat || 0) / (macros?.fat || 1)) * 100)}%` }}
+                    >
+                      <span className="progress-percentage">
+                        {Math.round(((dailyIntake?.fat || 0) / (macros?.fat || 1)) * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                  <div className="macro-remaining">
+                    {Math.max(0, (macros?.fat || 0) - (dailyIntake?.fat || 0))}g remaining
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="col-md-4 mb-3">
-          <div className="glass-container p-4">
-            <h4 className="text-white mb-3">Goal Progress</h4>
-            <ReactECharts option={getWeightProgressOption()} style={{ height: '300px' }} />
-          </div>
-        </div>
-      </div>
-
-      {/* Macros Cards */}
-      <div className="row mb-4">
-        <div className="col-md-3 mb-3">
-          <div className="glass-container macro-card">
-            <div className="macro-header">
-              <span className="macro-label">Protein</span>
-              <span className="macro-value">{dailyIntake?.protein || 0}g / {macros?.protein || 0}g</span>
-            </div>
-            <div className="progress">
-              <div 
-                className="progress-bar bg-info" 
-                style={{ width: `${Math.min(100, ((dailyIntake?.protein || 0) / (macros?.protein || 1)) * 100)}%` }}
-              ></div>
-            </div>
-          </div>
-        </div>
-
-        <div className="col-md-3 mb-3">
-          <div className="glass-container macro-card">
-            <div className="macro-header">
-              <span className="macro-label">Carbs</span>
-              <span className="macro-value">{dailyIntake?.carbs || 0}g / {macros?.carbs || 0}g</span>
-            </div>
-            <div className="progress">
-              <div 
-                className="progress-bar bg-warning" 
-                style={{ width: `${Math.min(100, ((dailyIntake?.carbs || 0) / (macros?.carbs || 1)) * 100)}%` }}
-              ></div>
-            </div>
-          </div>
-        </div>
-
-        <div className="col-md-3 mb-3">
-          <div className="glass-container macro-card">
-            <div className="macro-header">
-              <span className="macro-label">Fat</span>
-              <span className="macro-value">{dailyIntake?.fat || 0}g / {macros?.fat || 0}g</span>
-            </div>
-            <div className="progress">
-              <div 
-                className="progress-bar bg-danger" 
-                style={{ width: `${Math.min(100, ((dailyIntake?.fat || 0) / (macros?.fat || 1)) * 100)}%` }}
-              ></div>
-            </div>
-          </div>
-        </div>
-
-        <div className="col-md-3 mb-3">
-          <div className="glass-container macro-card">
-            <div className="macro-header">
-              <span className="macro-label">Water</span>
-              <span className="macro-value">0 / 8 glasses</span>
-            </div>
-            <div className="progress">
-              <div className="progress-bar bg-primary" style={{ width: '0%' }}></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Today's Meals */}
-      <div className="row">
-        <div className="col-12">
-          <div className="glass-container p-4">
+        {/* Today's Meals - Right Side */}
+        <div className="col-lg-4 mb-3">
+          <div className="glass-container p-4 h-100">
             <h4 className="text-white mb-3">Today's Meals</h4>
             {dailyIntake?.meals && dailyIntake.meals.length > 0 ? (
               <div className="meals-list">
                 {dailyIntake.meals.map((meal, index) => (
                   <div key={index} className="meal-item">
                     <div>
-                      <h6 className="text-white">{meal.recipeName}</h6>
+                      <h6 className="text-white mb-1">{meal.recipeName}</h6>
                       <small className="text-white-50">
                         {meal.calories} cal | P: {meal.protein}g | C: {meal.carbs}g | F: {meal.fat}g
                       </small>
@@ -538,6 +531,58 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
+
+      {}
+      <div className="row mb-4">
+        <div className="col-lg-6 mb-3">
+          <div className="glass-container p-4">
+            <h4 className="text-white mb-3">
+              Weight Prediction
+              {predictionLoading && (
+                <span className="spinner-border spinner-border-sm ms-2" role="status"></span>
+              )}
+            </h4>
+            {weightPrediction?.predictions ? (
+              <ReactECharts option={getWeightPredictionChartOption()} style={{ height: '400px' }} />
+            ) : (
+              <div className="text-center py-5">
+                <p className="text-white-50">
+                  {predictionLoading ? 'Loading predictions...' : 'Log at least 2 progress entries to see AI predictions'}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="col-lg-6 mb-3">
+          <div className="glass-container p-4">
+            <h4 className="text-white mb-3">Goal Progress</h4>
+            <ReactECharts option={getWeightProgressOption()} style={{ height: '340px' }} />
+            <div className="text-center mt-3">
+              <p className="text-white">
+                <strong>{stats.currentWeight?.toFixed(1) || 0} kg</strong> / {userProfile?.targetWeight?.toFixed(1) || 0} kg
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* AI Insights */}
+      {weightPrediction && (
+        <div className="row mb-4">
+          <div className="col-12">
+            <div className="glass-container p-4">
+              <h4 className="text-white mb-3">
+                <i className="fas fa-robot me-2"></i>
+                AI Insights
+              </h4>
+              <div className="insight-card">
+                <p className="text-white mb-0">{getAIInsightMessage()}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
