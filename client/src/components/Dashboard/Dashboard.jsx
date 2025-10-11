@@ -1,4 +1,3 @@
-// client/src/components/Dashboard/Dashboard.jsx - FIXED CHART & TRENDS
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { toast } from 'react-toastify';

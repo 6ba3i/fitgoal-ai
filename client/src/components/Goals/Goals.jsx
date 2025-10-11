@@ -1,4 +1,3 @@
-// client/src/components/Goals/Goals.jsx - WAIT FOR AUTH TO BE READY
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { toast } from 'react-toastify';

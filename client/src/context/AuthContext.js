@@ -1,4 +1,3 @@
-// client/src/context/AuthContext.js - WITH AUTO TOKEN REFRESH
 import React, { createContext, useState, useEffect, useRef } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../config/firebase';
