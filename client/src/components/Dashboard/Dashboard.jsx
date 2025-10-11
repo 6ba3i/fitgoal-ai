@@ -1,4 +1,4 @@
-// client/src/components/Dashboard/Dashboard.jsx - WAIT FOR AUTH TO BE READY
+// client/src/components/Dashboard/Dashboard.jsx - FIXED CHART & TRENDS
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { toast } from 'react-toastify';
@@ -22,17 +22,12 @@ const Dashboard = () => {
   const [weightPrediction, setWeightPrediction] = useState(null);
   const [predictionLoading, setPredictionLoading] = useState(false);
   
-  // Track if we've already loaded data for this user
   const loadedUserIdRef = useRef(null);
   const hasLoadedRef = useRef(false);
-  
-  // Cache for predictions
   const predictionCacheRef = useRef(null);
   const lastPredictionTimeRef = useRef(0);
 
   useEffect(() => {
-    // CRITICAL: Wait for BOTH user AND userProfile to be ready
-    // Don't load multiple times for the same user
     if (user?.uid && userProfile && !hasLoadedRef.current) {
       console.log('✅ Auth ready - Loading dashboard for:', user.uid);
       hasLoadedRef.current = true;
@@ -40,17 +35,15 @@ const Dashboard = () => {
       loadDashboardData();
     } else if (!user?.uid) {
       console.log('⏳ Waiting for authentication...');
-      // Reset when user logs out
       hasLoadedRef.current = false;
       loadedUserIdRef.current = null;
       setLoading(false);
     } else if (user?.uid && !userProfile) {
       console.log('⏳ User authenticated, waiting for profile...');
     }
-  }, [user?.uid, userProfile]); // Watch BOTH user.uid and userProfile
+  }, [user?.uid, userProfile]);
 
   const loadDashboardData = async () => {
-    // Triple-check we have authentication
     if (!user?.uid) {
       console.log('❌ No authenticated user');
       setLoading(false);
@@ -61,14 +54,12 @@ const Dashboard = () => {
       setLoading(true);
       console.log('📊 Loading dashboard data...');
       
-      // Get stats
       const statsResult = await firebaseDataService.getUserStats(user.uid);
       if (statsResult.success) {
         setStats(statsResult.data);
         console.log('✅ Stats loaded');
       }
 
-      // Set macros from profile
       if (userProfile) {
         setMacros({
           calories: userProfile.dailyCalories || 2000,
@@ -79,14 +70,12 @@ const Dashboard = () => {
         console.log('✅ Macros set');
       }
 
-      // Get daily intake
       const intakeResult = await firebaseDataService.getDailyIntake(user.uid);
       if (intakeResult.success) {
         setDailyIntake(intakeResult.data);
         console.log('✅ Daily intake loaded');
       }
 
-      // Get progress history
       const progressResult = await firebaseDataService.getProgress(user.uid, 30);
       
       console.log('📊 Progress data loaded:', {
@@ -94,13 +83,11 @@ const Dashboard = () => {
         count: progressResult.data?.length || 0
       });
 
-      // Load predictions if we have enough data
       if (progressResult.success && progressResult.data && progressResult.data.length >= 2) {
         console.log('✅ Enough data for predictions - scheduling AI call...');
-        // Wait a bit before calling AI prediction
         setTimeout(() => {
           loadWeightPrediction();
-        }, 2000); // 2 second delay
+        }, 2000);
       } else {
         console.log('⚠️ Not enough progress data for predictions:', progressResult.data?.length || 0);
       }
@@ -108,7 +95,6 @@ const Dashboard = () => {
       console.log('✅ Dashboard data loaded successfully');
     } catch (error) {
       console.error('❌ Dashboard error:', error);
-      // Only show toast if it's not an auth error
       if (error.response?.status !== 401) {
         toast.error('Failed to load some dashboard data');
       }
@@ -118,17 +104,15 @@ const Dashboard = () => {
   };
 
   const loadWeightPrediction = async () => {
-    // Check authentication
     if (!user?.uid) {
       console.log('⚠️ Skipping prediction - user not authenticated');
       return;
     }
 
     const now = Date.now();
-    const CACHE_DURATION = 60 * 60 * 1000; // 1 hour
-    const MIN_CALL_INTERVAL = 10000; // 10 seconds
+    const CACHE_DURATION = 60 * 60 * 1000;
+    const MIN_CALL_INTERVAL = 10000;
     
-    // Use cached data if available and fresh
     if (predictionCacheRef.current && 
         (now - lastPredictionTimeRef.current) < CACHE_DURATION) {
       console.log('✅ Using cached prediction');
@@ -136,7 +120,6 @@ const Dashboard = () => {
       return;
     }
 
-    // Rate limit: don't call too frequently
     if ((now - lastPredictionTimeRef.current) < MIN_CALL_INTERVAL) {
       console.log('⏳ Rate limited - skipping prediction call');
       return;
@@ -161,9 +144,8 @@ const Dashboard = () => {
         console.log('✅ Predictions loaded successfully!');
       }
     } catch (error) {
-      // Handle errors gracefully
       if (error.response?.status === 401) {
-        console.log('🔒 Prediction skipped - authentication issue (token may be expired)');
+        console.log('🔒 Prediction skipped - authentication issue');
       } else if (error.response?.status === 429) {
         console.log('⏱️ Predictions rate limited');
       } else if (error.response?.status === 400) {
@@ -181,21 +163,27 @@ const Dashboard = () => {
 
     const { predictions, trend } = weightPrediction;
     const target = userProfile?.targetWeight || 0;
-    const dates = predictions.map(p => p.date);
-    const weights = predictions.map(p => parseFloat(p.weight).toFixed(2));
+    
+    // ✅ FIX: Properly format dates from predictions
+    const dates = predictions.map(p => {
+      const date = new Date(p.date);
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    });
+    
+    const weights = predictions.map(p => parseFloat(p.weight));
     
     return {
       tooltip: {
         trigger: 'axis',
         backgroundColor: 'rgba(0, 0, 0, 0.8)',
         textStyle: { color: '#fff' },
+        // ✅ FIX: Clean tooltip formatter - only date and weight
         formatter: (params) => {
-          const date = params[0].axisValue;
-          let html = `<strong>${date}</strong><br/>`;
-          params.forEach(param => {
-            html += `${param.marker} ${param.seriesName}: <strong>${parseFloat(param.value).toFixed(2)} kg</strong><br/>`;
-          });
-          return html;
+          if (!params || params.length === 0) return '';
+          const param = params[0];
+          const date = param.axisValue;
+          const weight = parseFloat(param.value).toFixed(1);
+          return `<strong>${date}</strong><br/>Predicted Weight: <strong>${weight} kg</strong>`;
         }
       },
       legend: {
@@ -214,11 +202,7 @@ const Dashboard = () => {
         data: dates,
         axisLabel: { 
           color: '#fff',
-          rotate: 45,
-          formatter: (value) => {
-            const date = new Date(value);
-            return `${date.getMonth() + 1}/${date.getDate()}`;
-          }
+          rotate: 45
         },
         axisLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.3)' } }
       },
@@ -228,7 +212,7 @@ const Dashboard = () => {
         nameTextStyle: { color: '#fff' },
         axisLabel: { 
           color: '#fff',
-          formatter: (value) => parseFloat(value).toFixed(2)
+          formatter: (value) => value.toFixed(1)
         },
         axisLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.3)' } },
         splitLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.1)' } }
@@ -257,7 +241,7 @@ const Dashboard = () => {
             data: [{
               yAxis: target,
               label: { 
-                formatter: (params) => `Target: ${parseFloat(params.value).toFixed(2)} kg`,
+                formatter: () => `Target: ${target.toFixed(1)} kg`,
                 color: '#48c774' 
               }
             }]
@@ -323,6 +307,38 @@ const Dashboard = () => {
     };
   };
 
+  // ✅ FIX: Better AI insights based on actual trend direction
+  const getAIInsightMessage = () => {
+    if (!weightPrediction?.trend) return 'Keep logging your progress to see AI insights!';
+    
+    const { trend } = weightPrediction;
+    const direction = trend.direction;
+    const onTrack = trend.onTrack;
+    
+    // Check if user's goal aligns with trend
+    const userGoal = userProfile?.goal || 'maintain';
+    
+    if (direction === 'losing') {
+      if (userGoal === 'lose') {
+        return `Great progress! You're losing weight at ${Math.abs(trend.weeklyChange).toFixed(2)} kg/week. ${onTrack ? "You're on track to reach your goal!" : "Consider adjusting your target date."}`;
+      } else if (userGoal === 'gain') {
+        return `Your weight is decreasing, but your goal is to gain weight. Consider increasing your calorie intake.`;
+      } else {
+        return `Your weight is decreasing. Make sure this aligns with your goals!`;
+      }
+    } else if (direction === 'gaining') {
+      if (userGoal === 'gain') {
+        return `Excellent! You're gaining weight at ${Math.abs(trend.weeklyChange).toFixed(2)} kg/week. Keep up the good work!`;
+      } else if (userGoal === 'lose') {
+        return `Your weight is increasing, but your goal is to lose weight. Consider reducing your calorie intake or increasing activity.`;
+      } else {
+        return `Your weight is increasing. Make sure this aligns with your goals!`;
+      }
+    } else {
+      return `Your weight is stable. ${userGoal === 'maintain' ? 'Perfect for maintenance!' : 'Consider adjusting your approach to reach your goals.'}`;
+    }
+  };
+
   if (loading) {
     return (
       <div className="container dashboard-loading">
@@ -348,9 +364,9 @@ const Dashboard = () => {
             <div className="stat-icon"><i className="fas fa-weight"></i></div>
             <div className="stat-content">
               <h5 className="stat-label">Current Weight</h5>
-              <h3 className="stat-value">{parseFloat(stats?.currentWeight || userProfile?.weight || 0).toFixed(2)} kg</h3>
+              <h3 className="stat-value">{parseFloat(stats?.currentWeight || userProfile?.weight || 0).toFixed(1)} kg</h3>
               <small className="stat-change text-success">
-                {stats?.weightChange > 0 ? '+' : ''}{parseFloat(stats?.weightChange || 0).toFixed(2)} kg this week
+                {stats?.weightChange > 0 ? '+' : ''}{parseFloat(stats?.weightChange || 0).toFixed(1)} kg this week
               </small>
             </div>
           </div>
@@ -412,12 +428,7 @@ const Dashboard = () => {
                     AI Insights
                   </h6>
                   <span className="text-white-50">
-                    {weightPrediction.trend.direction === 'losing' ? 
-                      `You're on track! At this rate, you'll reach your goal ${weightPrediction.trend.onTrack ? 'on time' : 'soon'}.` :
-                      weightPrediction.trend.direction === 'gaining' ?
-                      `Your weight is increasing. Make sure this aligns with your goals!` :
-                      `Your weight is stable. This is perfect for maintenance!`
-                    }
+                    {getAIInsightMessage()}
                   </span>
                 </div>
               </>
