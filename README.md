@@ -1,4 +1,4 @@
-# 🍎 NutriTrack - AI-Powered Nutrition & Fitness Platform
+# 🍎 FitGoal - AI-Powered Nutrition & Fitness Platform
 
 > A comprehensive full-stack web application for personalized nutrition tracking, meal planning, and fitness goal management using advanced AI algorithms and real-time data analytics.
 
@@ -385,7 +385,7 @@ JWT_EXPIRE=7d
 ### Installation Steps
 ```bash
 # 1. Clone repository
-git clone https://github.com/yourusername/nutritrack.git
+git clone [https://github.com/6ba3i/fitgoal-ai.git]
 cd nutritrack
 
 # 2. Install server dependencies
