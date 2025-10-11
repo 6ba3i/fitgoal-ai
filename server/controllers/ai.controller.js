@@ -315,7 +315,7 @@ class AIController {
     }
   }
 
-  // ==================== 4. DETECT PLATEAU ====================
+// ==================== 4. DETECT PLATEAU ====================
   async detectPlateau(req, res) {
     try {
       const userId = req.user.id;
@@ -338,6 +338,7 @@ class AIController {
         });
       }
 
+      // Sort by date (most recent first)
       const sortedData = progressArray.sort((a, b) => {
         const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
         const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
@@ -349,26 +350,112 @@ class AIController {
       const weights = recentData.map(entry => entry.weight);
       const avgWeight = weights.reduce((sum, w) => sum + w, 0) / weights.length;
       
-      const variance = weights.reduce((sum, w) => sum + Math.pow(w - avgWeight, 2), 0) / weights.length;
-      const stdDev = Math.sqrt(variance);
+      // Calculate weight change from oldest to newest in the 14-day window
+      const oldestWeight = weights[weights.length - 1]; // 14 days ago
+      const newestWeight = weights[0]; // Today
+      const totalChange = newestWeight - oldestWeight;
+      const dailyChange = totalChange / 14;
+      
+      // Plateau = less than 0.1kg change over 14 days (~7g per day)
+      const plateauDetected = Math.abs(totalChange) < 0.1;
 
-      const plateauDetected = stdDev < 0.5;
+      console.log('📊 Plateau detection:', {
+        oldestWeight,
+        newestWeight,
+        totalChange: totalChange.toFixed(3),
+        dailyChange: (dailyChange * 1000).toFixed(1) + 'g',
+        plateauDetected
+      });
 
       if (!plateauDetected) {
+        const userProfile = await firebaseService.getFromFirestore('users', userId);
+        const userGoal = userProfile?.profile?.goal || 'maintain';
+        
+        // Positive feedback based on user goal
+        let message = 'No plateau detected. Keep going!';
+        let suggestions = [];
+        
+        if (userGoal === 'lose' && totalChange < 0) {
+          message = `Great progress! You're losing ${Math.abs(dailyChange * 1000).toFixed(0)}g per day. Keep up the excellent work!`;
+          suggestions = [
+            {
+              title: 'Maintain Current Plan',
+              description: 'Your current approach is working well',
+              priority: 'high'
+            },
+            {
+              title: 'Stay Consistent',
+              description: 'Continue logging your meals and workouts daily',
+              priority: 'medium'
+            },
+            {
+              title: 'Stay Hydrated',
+              description: 'Drink at least 2-3 liters of water daily',
+              priority: 'low'
+            }
+          ];
+        } else if (userGoal === 'gain' && totalChange > 0) {
+          message = `Excellent! You're gaining ${Math.abs(dailyChange * 1000).toFixed(0)}g per day. Stay on track!`;
+          suggestions = [
+            {
+              title: 'Keep Eating Surplus',
+              description: 'Maintain your current calorie surplus',
+              priority: 'high'
+            },
+            {
+              title: 'Progressive Overload',
+              description: 'Gradually increase weights in your workouts',
+              priority: 'medium'
+            },
+            {
+              title: 'Rest & Recover',
+              description: 'Get 7-9 hours of sleep for muscle growth',
+              priority: 'low'
+            }
+          ];
+        } else if (userGoal === 'maintain' && Math.abs(totalChange) < 0.5) {
+          message = 'Perfect! Your weight is stable. Keep maintaining!';
+          suggestions = [
+            {
+              title: 'Keep Current Balance',
+              description: 'Your calorie intake matches your expenditure',
+              priority: 'high'
+            },
+            {
+              title: 'Regular Activity',
+              description: 'Maintain your current exercise routine',
+              priority: 'medium'
+            }
+          ];
+        } else {
+          // Weight is changing but not in the direction of the goal
+          message = `Your weight is changing, but may not align with your "${userGoal}" goal. Consider adjusting your plan.`;
+          suggestions = [
+            {
+              title: 'Review Your Goal',
+              description: 'Ensure your nutrition aligns with your fitness goal',
+              priority: 'high'
+            }
+          ];
+        }
+        
         return res.json({
           success: true,
           plateauDetected: false,
-          message: 'No plateau detected. Keep going!'
+          message,
+          suggestions,
+          currentTrend: {
+            totalChange: Math.round(totalChange * 1000) / 1000,
+            dailyChange: Math.round(dailyChange * 1000 * 10) / 10,
+            period: 14
+          }
         });
       }
 
+      // If plateau detected
       const userProfile = await firebaseService.getFromFirestore('users', userId);
       const currentCalories = userProfile?.profile?.dailyCalories || 2000;
-      const currentWeight = weights[0];
-
-      const plateauStartDate = recentData[recentData.length - 1].date;
-      const plateauStartDateObj = plateauStartDate?.toDate ? plateauStartDate.toDate() : new Date(plateauStartDate);
-      const daysSincePlateau = Math.ceil((new Date() - plateauStartDateObj) / (1000 * 60 * 60 * 24));
+      const currentWeight = newestWeight;
 
       const suggestions = [
         {
@@ -409,12 +496,12 @@ class AIController {
       res.json({
         success: true,
         plateauDetected: true,
-        duration: daysSincePlateau,
+        duration: 14,
         avgWeight: Math.round(avgWeight * 10) / 10,
-        stdDev: Math.round(stdDev * 100) / 100,
+        totalChange: Math.round(totalChange * 1000) / 1000,
         suggestions,
         recommendedPlan,
-        message: `Plateau detected: Weight stable at ${Math.round(avgWeight * 10) / 10} kg for ${daysSincePlateau} days`
+        message: `Plateau detected: Weight stable at ${Math.round(avgWeight * 10) / 10} kg for 14 days (only ${Math.abs(totalChange * 1000).toFixed(0)}g change)`
       });
 
     } catch (error) {

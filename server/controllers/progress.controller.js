@@ -696,7 +696,7 @@ class ProgressController {
     }));
   }
 
-  async calculateGoalProgress(userId, progressData) {
+async calculateGoalProgress(userId, progressData) {
     try {
       // Get user profile to access goals
       const userProfile = await firebaseService.getFromFirestore('users', userId);
@@ -704,7 +704,15 @@ class ProgressController {
       if (!userProfile?.profile) return null;
       
       const { weight: currentWeight, targetWeight, goal } = userProfile.profile;
-      const startWeight = progressData[progressData.length - 1]?.weight || currentWeight;
+      
+      // ✅ FIX: Use first entry weight as starting weight (oldest entry)
+      const sortedData = progressData.sort((a, b) => {
+        const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
+        const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
+        return dateA - dateB; // Oldest first
+      });
+      
+      const startWeight = sortedData[0]?.weight || currentWeight;
       
       let progress = 0;
       if (goal === 'lose') {
@@ -727,7 +735,6 @@ class ProgressController {
       return null;
     }
   }
-
   calculateLoggingConsistency(progressData) {
     // Calculate based on how many days have entries in the last 30 days
     const thirtyDaysAgo = new Date();
