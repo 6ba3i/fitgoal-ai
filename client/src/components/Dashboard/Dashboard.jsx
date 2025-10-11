@@ -1,4 +1,4 @@
-// client/src/components/Dashboard/Dashboard.jsx - FIXED DECIMALS + DEBUG PREDICTIONS
+// client/src/components/Dashboard/Dashboard.jsx - WAIT FOR AUTH TO BE READY
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { toast } from 'react-toastify';
@@ -24,29 +24,48 @@ const Dashboard = () => {
   
   // Track if we've already loaded data for this user
   const loadedUserIdRef = useRef(null);
+  const hasLoadedRef = useRef(false);
   
   // Cache for predictions
   const predictionCacheRef = useRef(null);
   const lastPredictionTimeRef = useRef(0);
 
   useEffect(() => {
-    // Only load once per user - prevent loops
-    if (user?.uid && userProfile && loadedUserIdRef.current !== user.uid) {
+    // CRITICAL: Wait for BOTH user AND userProfile to be ready
+    // Don't load multiple times for the same user
+    if (user?.uid && userProfile && !hasLoadedRef.current) {
+      console.log('✅ Auth ready - Loading dashboard for:', user.uid);
+      hasLoadedRef.current = true;
       loadedUserIdRef.current = user.uid;
       loadDashboardData();
+    } else if (!user?.uid) {
+      console.log('⏳ Waiting for authentication...');
+      // Reset when user logs out
+      hasLoadedRef.current = false;
+      loadedUserIdRef.current = null;
+      setLoading(false);
+    } else if (user?.uid && !userProfile) {
+      console.log('⏳ User authenticated, waiting for profile...');
     }
-  }, [user?.uid]); // Only re-run if user ID changes
+  }, [user?.uid, userProfile]); // Watch BOTH user.uid and userProfile
 
   const loadDashboardData = async () => {
-    if (!user) return;
+    // Triple-check we have authentication
+    if (!user?.uid) {
+      console.log('❌ No authenticated user');
+      setLoading(false);
+      return;
+    }
     
     try {
       setLoading(true);
+      console.log('📊 Loading dashboard data...');
       
       // Get stats
       const statsResult = await firebaseDataService.getUserStats(user.uid);
       if (statsResult.success) {
         setStats(statsResult.data);
+        console.log('✅ Stats loaded');
       }
 
       // Set macros from profile
@@ -57,43 +76,49 @@ const Dashboard = () => {
           carbs: userProfile.dailyCarbs || 250,
           fat: userProfile.dailyFat || 65
         });
+        console.log('✅ Macros set');
       }
 
       // Get daily intake
       const intakeResult = await firebaseDataService.getDailyIntake(user.uid);
       if (intakeResult.success) {
         setDailyIntake(intakeResult.data);
+        console.log('✅ Daily intake loaded');
       }
 
-      // Get progress history directly
+      // Get progress history
       const progressResult = await firebaseDataService.getProgress(user.uid, 30);
       
       console.log('📊 Progress data loaded:', {
         success: progressResult.success,
-        count: progressResult.data?.length || 0,
-        hasData: progressResult.data && progressResult.data.length >= 2
+        count: progressResult.data?.length || 0
       });
 
       // Load predictions if we have enough data
       if (progressResult.success && progressResult.data && progressResult.data.length >= 2) {
-        console.log('✅ Enough data for predictions - calling AI...');
-        // Wait a bit for auth to settle
+        console.log('✅ Enough data for predictions - scheduling AI call...');
+        // Wait a bit before calling AI prediction
         setTimeout(() => {
           loadWeightPrediction();
-        }, 1500);
+        }, 2000); // 2 second delay
       } else {
         console.log('⚠️ Not enough progress data for predictions:', progressResult.data?.length || 0);
       }
       
+      console.log('✅ Dashboard data loaded successfully');
     } catch (error) {
-      console.error('Dashboard error:', error);
+      console.error('❌ Dashboard error:', error);
+      // Only show toast if it's not an auth error
+      if (error.response?.status !== 401) {
+        toast.error('Failed to load some dashboard data');
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const loadWeightPrediction = async () => {
-    // CRITICAL: Don't call if user not authenticated
+    // Check authentication
     if (!user?.uid) {
       console.log('⚠️ Skipping prediction - user not authenticated');
       return;
@@ -136,15 +161,15 @@ const Dashboard = () => {
         console.log('✅ Predictions loaded successfully!');
       }
     } catch (error) {
+      // Handle errors gracefully
       if (error.response?.status === 401) {
-        console.log('🔒 Prediction skipped - authentication required');
-        return;
+        console.log('🔒 Prediction skipped - authentication issue (token may be expired)');
       } else if (error.response?.status === 429) {
-        console.log('⏱️ Predictions rate limited - will retry later');
+        console.log('⏱️ Predictions rate limited');
       } else if (error.response?.status === 400) {
-        console.log('⚠️ Not enough data for predictions:', error.response?.data);
+        console.log('⚠️ Not enough data for predictions');
       } else {
-        console.error('❌ Prediction error:', error);
+        console.error('❌ Prediction error:', error.message);
       }
     } finally {
       setPredictionLoading(false);
@@ -304,6 +329,7 @@ const Dashboard = () => {
         <div className="spinner-border text-light" role="status">
           <span className="visually-hidden">Loading...</span>
         </div>
+        <p className="text-white mt-3">Loading your dashboard...</p>
       </div>
     );
   }
@@ -324,7 +350,7 @@ const Dashboard = () => {
               <h5 className="stat-label">Current Weight</h5>
               <h3 className="stat-value">{parseFloat(stats?.currentWeight || userProfile?.weight || 0).toFixed(2)} kg</h3>
               <small className="stat-change text-success">
-                {stats?.weightChange > 0 ? '+' : ''}{parseFloat(stats?.weightChange || 0).toFixed(2)} kg
+                {stats?.weightChange > 0 ? '+' : ''}{parseFloat(stats?.weightChange || 0).toFixed(2)} kg this week
               </small>
             </div>
           </div>
@@ -332,96 +358,60 @@ const Dashboard = () => {
 
         <div className="col-md-3 mb-3">
           <div className="glass-container stat-card">
-            <div className="stat-icon"><i className="fas fa-fire"></i></div>
+            <div className="stat-icon bg-success"><i className="fas fa-fire"></i></div>
             <div className="stat-content">
-              <h5 className="stat-label">Calories Today</h5>
+              <h5 className="stat-label">Today's Calories</h5>
               <h3 className="stat-value">{dailyIntake?.calories || 0}</h3>
-              <small className="stat-change">/ {macros?.calories || 0} kcal</small>
+              <small className="stat-change">
+                / {macros?.calories || 2000} cal
+              </small>
             </div>
           </div>
         </div>
 
         <div className="col-md-3 mb-3">
           <div className="glass-container stat-card">
-            <div className="stat-icon"><i className="fas fa-dumbbell"></i></div>
+            <div className="stat-icon bg-warning"><i className="fas fa-chart-line"></i></div>
             <div className="stat-content">
-              <h5 className="stat-label">Protein</h5>
-              <h3 className="stat-value">{dailyIntake?.protein || 0}g</h3>
-              <small className="stat-change">/ {macros?.protein || 0}g</small>
+              <h5 className="stat-label">Avg Calories</h5>
+              <h3 className="stat-value">{Math.round(stats?.averageCalories || 0)}</h3>
+              <small className="stat-change">Last 7 days</small>
             </div>
           </div>
         </div>
 
         <div className="col-md-3 mb-3">
           <div className="glass-container stat-card">
-            <div className="stat-icon"><i className="fas fa-calendar-day"></i></div>
+            <div className="stat-icon bg-info"><i className="fas fa-trophy"></i></div>
             <div className="stat-content">
               <h5 className="stat-label">Streak</h5>
               <h3 className="stat-value">{stats?.streak || 0}</h3>
-              <small className="stat-change">days</small>
+              <small className="stat-change">Days logging</small>
             </div>
           </div>
         </div>
       </div>
 
-      {/* AI PREDICTION CHART */}
+      {/* Charts Row */}
       <div className="row mb-4">
         <div className="col-md-8 mb-3">
           <div className="glass-container p-4">
-            <div className="d-flex justify-content-between align-items-center mb-3">
-              <h4 className="text-white mb-0">
-                <i className="fas fa-crystal-ball me-2"></i>
-                AI Weight Prediction (Next 30 Days)
-              </h4>
-              {predictionLoading && (
-                <div className="spinner-border spinner-border-sm text-light" role="status">
-                  <span className="visually-hidden">Loading...</span>
-                </div>
-              )}
-            </div>
-            
-            {weightPrediction ? (
+            <h4 className="text-white mb-3">
+              <i className="fas fa-robot me-2"></i>
+              AI Weight Prediction (30 Days)
+            </h4>
+            {weightPrediction && weightPrediction.predictions ? (
               <>
                 <ReactECharts 
                   option={getWeightPredictionChartOption()} 
-                  style={{ height: '300px' }} 
+                  style={{ height: '350px' }} 
                 />
-                
-                <div className="row mt-3">
-                  <div className="col-md-4">
-                    <div className="prediction-stat">
-                      <label className="text-white-50 small">Current Trend</label>
-                      <div className="text-white">
-                        {weightPrediction.trend.direction === 'losing' ? '📉' : 
-                         weightPrediction.trend.direction === 'gaining' ? '📈' : '➡️'}
-                        <strong className="ms-2">
-                          {Math.abs(weightPrediction.trend.weeklyChange).toFixed(2)} kg/week
-                        </strong>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="col-md-4">
-                    <div className="prediction-stat">
-                      <label className="text-white-50 small">Predicted in 30 Days</label>
-                      <div className="text-white">
-                        <strong>{parseFloat(weightPrediction.predictions[weightPrediction.predictions.length - 1].weight).toFixed(2)} kg</strong>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="col-md-4">
-                    <div className="prediction-stat">
-                      <label className="text-white-50 small">Confidence</label>
-                      <div className="text-white">
-                        <strong>{(weightPrediction.r2 * 100).toFixed(1)}%</strong>
-                        <span className="ms-2">{weightPrediction.r2 > 0.8 ? '✓ High' : weightPrediction.r2 > 0.5 ? '○ Medium' : '⚠ Low'}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="alert alert-info mt-3 mb-0" style={{ background: 'rgba(102, 126, 234, 0.1)', border: '1px solid rgba(102, 126, 234, 0.3)' }}>
-                  <i className="fas fa-lightbulb me-2"></i>
-                  <span className="text-white">
+                <div className="mt-3 p-3 bg-dark bg-opacity-25 rounded">
+                  <h6 className="text-white mb-2">
+                    <i className="fas fa-lightbulb me-2"></i>
+                    AI Insights
+                  </h6>
+                  <span className="text-white-50">
                     {weightPrediction.trend.direction === 'losing' ? 
                       `You're on track! At this rate, you'll reach your goal ${weightPrediction.trend.onTrack ? 'on time' : 'soon'}.` :
                       weightPrediction.trend.direction === 'gaining' ?

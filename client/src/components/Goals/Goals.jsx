@@ -1,4 +1,4 @@
-// client/src/components/Goals/Goals.jsx - FIXED INFINITE LOOP
+// client/src/components/Goals/Goals.jsx - WAIT FOR AUTH TO BE READY
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { toast } from 'react-toastify';
@@ -27,11 +27,14 @@ const Goals = () => {
   });
 
   // Use ref to prevent infinite loops
-  const initializedRef = useRef(false);
+  const hasInitializedRef = useRef(false);
+  const lastWeightRef = useRef(null);
 
   useEffect(() => {
-    if (userProfile && !initializedRef.current) {
-      initializedRef.current = true;
+    // CRITICAL: Wait for BOTH user AND userProfile to be ready
+    if (user?.uid && userProfile && !hasInitializedRef.current) {
+      console.log('✅ Auth ready - Initializing Goals for:', user.uid);
+      hasInitializedRef.current = true;
       
       // Initialize form data
       setFormData({
@@ -45,27 +48,63 @@ const Goals = () => {
         targetDate: userProfile.targetDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       });
       
-      // Check for plateau (don't await - let it run in background)
+      // Check for plateau (don't await)
       checkForPlateau();
       
       // Generate predictions
       generatePredictions();
+      
+      // Store initial weight
+      lastWeightRef.current = userProfile.weight;
+    } else if (!user?.uid) {
+      console.log('⏳ Waiting for authentication...');
+      // Reset when user logs out
+      hasInitializedRef.current = false;
+      lastWeightRef.current = null;
+    } else if (user?.uid && !userProfile) {
+      console.log('⏳ User authenticated, waiting for profile...');
     }
-  }, [userProfile?.weight]); // Only re-run if weight changes
+  }, [user?.uid, userProfile]); // Watch BOTH
+
+  // Separate effect to handle weight changes (only after initialization)
+  useEffect(() => {
+    if (hasInitializedRef.current && 
+        userProfile?.weight && 
+        lastWeightRef.current !== null && 
+        userProfile.weight !== lastWeightRef.current) {
+      console.log('📊 Weight changed, regenerating predictions');
+      lastWeightRef.current = userProfile.weight;
+      generatePredictions();
+    }
+  }, [userProfile?.weight]);
 
   const checkForPlateau = async () => {
+    // Check authentication
+    if (!user?.uid) {
+      console.log('⚠️ Skipping plateau check - user not authenticated');
+      return;
+    }
+
     try {
       const result = await aiService.detectPlateau();
       if (result.success && result.data && result.data.plateauDetected) {
         setPlateauAlert(result.data);
       }
     } catch (error) {
-      console.error('Plateau check failed:', error);
+      // Handle errors gracefully
+      if (error.response?.status === 401) {
+        console.log('🔒 Plateau check skipped - authentication issue');
+      } else {
+        console.error('❌ Plateau check failed:', error.message);
+      }
     }
   };
 
   const generatePredictions = () => {
-    if (!userProfile) return;
+    if (!userProfile) {
+      console.log('⚠️ No user profile, skipping prediction generation');
+      return;
+    }
     
     const currentWeight = userProfile.weight || 70;
     const targetWeight = userProfile.targetWeight || currentWeight;
@@ -82,6 +121,7 @@ const Goals = () => {
     }
     
     setPredictions({ predictions });
+    console.log('📈 Local predictions generated');
   };
 
   const handleChange = (e) => {
@@ -96,6 +136,13 @@ const Goals = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Check authentication
+    if (!user?.uid) {
+      toast.error('Please log in to update your goals');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -103,20 +150,28 @@ const Goals = () => {
       if (response.success) {
         toast.success('Goals updated successfully!');
         
-        // Get AI recommendation (don't await - show modal when ready)
+        // Get AI recommendation (don't await)
         getCalorieRecommendation();
       } else {
         toast.error('Failed to update goals');
       }
     } catch (error) {
       console.error('Goal update error:', error);
-      toast.error('An error occurred');
+      if (error.response?.status !== 401) {
+        toast.error('An error occurred');
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const getCalorieRecommendation = async () => {
+    // Check authentication
+    if (!user?.uid) {
+      console.log('⚠️ Skipping calorie recommendation - user not authenticated');
+      return;
+    }
+
     try {
       const result = await aiService.recommendCalories();
       
@@ -125,7 +180,11 @@ const Goals = () => {
         setShowCalorieModal(true);
       }
     } catch (error) {
-      console.error('Calorie recommendation failed:', error);
+      if (error.response?.status === 401) {
+        console.log('🔒 Calorie recommendation skipped - authentication issue');
+      } else {
+        console.error('❌ Calorie recommendation failed:', error.message);
+      }
     }
   };
 
@@ -144,40 +203,32 @@ const Goals = () => {
       if (updated.success) {
         toast.success('✓ Goals updated with AI recommendations!');
         setShowCalorieModal(false);
+      } else {
+        toast.error('Failed to apply recommendations');
       }
     } catch (error) {
-      toast.error('Failed to apply recommendations');
+      console.error('Apply recommendation error:', error);
+      if (error.response?.status !== 401) {
+        toast.error('An error occurred');
+      }
     }
   };
 
-  const dismissPlateau = () => {
-    setPlateauAlert(null);
-  };
-
-  const calculateProgress = () => {
-    if (!userProfile || !userProfile.weight || !userProfile.targetWeight) return 0;
-    const total = Math.abs(userProfile.weight - userProfile.targetWeight);
-    const current = userProfile.weight;
-    const target = userProfile.targetWeight;
-    const progress = ((current - target) / total) * 100;
-    return Math.max(0, Math.min(100, 100 - Math.abs(progress)));
-  };
-
-  const calculateDaysRemaining = () => {
-    if (!userProfile?.targetDate) return 0;
-    const today = new Date();
-    const target = new Date(userProfile.targetDate);
-    const diff = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
-    return Math.max(0, diff);
-  };
-
   const getProgressChartOption = () => {
-    if (!predictions) return {};
+    if (!predictions?.predictions) return {};
+
+    const days = predictions.predictions.map(p => `Day ${p.day}`);
+    const weights = predictions.predictions.map(p => p.weight);
+    const target = formData.targetWeight;
 
     return {
       tooltip: {
         trigger: 'axis',
         backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        textStyle: { color: '#fff' }
+      },
+      legend: {
+        data: ['Projected Weight', 'Target'],
         textStyle: { color: '#fff' }
       },
       grid: {
@@ -188,270 +239,119 @@ const Goals = () => {
       },
       xAxis: {
         type: 'category',
-        data: predictions.predictions.map((p) => `Day ${p.day}`),
+        data: days,
+        axisLine: { lineStyle: { color: '#fff' } },
         axisLabel: { color: '#fff' }
       },
       yAxis: {
         type: 'value',
-        name: 'Weight (kg)',
-        nameTextStyle: { color: '#fff' },
+        axisLine: { lineStyle: { color: '#fff' } },
+        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
         axisLabel: { color: '#fff' }
       },
-      series: [{
-        data: predictions.predictions.map(p => p.weight),
-        type: 'line',
-        smooth: true,
-        lineStyle: {
-          color: '#667eea',
-          width: 3
-        },
-        areaStyle: {
-          color: {
-            type: 'linear',
-            x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [
-              { offset: 0, color: 'rgba(102, 126, 234, 0.5)' },
-              { offset: 1, color: 'rgba(102, 126, 234, 0.1)' }
-            ]
+      series: [
+        {
+          name: 'Projected Weight',
+          type: 'line',
+          data: weights,
+          smooth: true,
+          lineStyle: { color: '#667eea', width: 3 },
+          itemStyle: { color: '#667eea' },
+          areaStyle: {
+            color: {
+              type: 'linear',
+              x: 0, y: 0, x2: 0, y2: 1,
+              colorStops: [
+                { offset: 0, color: 'rgba(102, 126, 234, 0.3)' },
+                { offset: 1, color: 'rgba(102, 126, 234, 0)' }
+              ]
+            }
           }
         },
-        markLine: {
-          data: [
-            {
-              name: 'Target',
-              yAxis: formData.targetWeight,
-              lineStyle: {
-                color: '#48c774',
-                type: 'dashed'
-              },
-              label: {
-                color: '#48c774',
-                formatter: 'Target: {c} kg'
-              }
-            }
-          ]
+        {
+          name: 'Target',
+          type: 'line',
+          data: new Array(days.length).fill(target),
+          lineStyle: { color: '#48c774', width: 2, type: 'dashed' },
+          itemStyle: { color: '#48c774' }
         }
-      }]
+      ]
     };
   };
 
-  // Early return for no user - prevent infinite loops
-  if (!user) {
-    return (
-      <div className="container goals-container">
-        <div className="text-center py-5">
-          <div className="spinner-border text-light" role="status">
-            <span className="visually-hidden">Loading...</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Initial setup form if no profile
-  if (!userProfile) {
-    return (
-      <div className="container goals-container">
-        <div className="glass-container p-4">
-          <h3 className="text-white mb-3">Set Your Goals</h3>
-          <p className="text-white-50">Please complete your profile first.</p>
-          <form onSubmit={handleSubmit}>
-            <div className="row">
-              <div className="col-md-6 mb-3">
-                <label className="form-label text-white">Current Weight (kg)</label>
-                <input 
-                  type="number"
-                  name="weight"
-                  value={formData.weight}
-                  onChange={handleChange}
-                  className="form-control glass-input"
-                  step="0.1"
-                  required
-                />
-              </div>
-
-              <div className="col-md-6 mb-3">
-                <label className="form-label text-white">Target Weight (kg)</label>
-                <input 
-                  type="number"
-                  name="targetWeight"
-                  value={formData.targetWeight}
-                  onChange={handleChange}
-                  className="form-control glass-input"
-                  step="0.1"
-                  required
-                />
-              </div>
-
-              <div className="col-md-6 mb-3">
-                <label className="form-label text-white">Goal</label>
-                <select 
-                  name="goal"
-                  value={formData.goal}
-                  onChange={handleChange}
-                  className="form-select glass-input"
-                >
-                  <option value="lose">Lose Weight</option>
-                  <option value="maintain">Maintain Weight</option>
-                  <option value="gain">Gain Weight</option>
-                </select>
-              </div>
-
-              <div className="col-md-6 mb-3">
-                <label className="form-label text-white">Activity Level</label>
-                <select 
-                  name="activityLevel"
-                  value={formData.activityLevel}
-                  onChange={handleChange}
-                  className="form-select glass-input"
-                >
-                  <option value="sedentary">Sedentary</option>
-                  <option value="light">Lightly Active</option>
-                  <option value="moderate">Moderately Active</option>
-                  <option value="active">Very Active</option>
-                  <option value="veryActive">Extremely Active</option>
-                </select>
-              </div>
-            </div>
-
-            <button type="submit" className="btn btn-primary" disabled={loading}>
-              {loading ? 'Saving...' : 'Save Goals'}
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="container goals-container">
-      <div className="goals-header mb-4">
-        <h1 className="text-white">Your Fitness Goals</h1>
-        <p className="text-white-50">Track and adjust your fitness objectives</p>
+    <div className="goals-container container">
+      <div className="goals-header">
+        <h1 className="gradient-text">Set Your Goals</h1>
+        <p className="text-white-50">Define your fitness objectives and let AI guide you</p>
       </div>
 
-      {/* PLATEAU ALERT */}
+      {/* Plateau Alert */}
       {plateauAlert && (
-        <div className="row mb-4">
-          <div className="col-12">
-            <div className="glass-container p-4" style={{ background: 'rgba(255, 193, 7, 0.1)', border: '2px solid rgba(255, 193, 7, 0.5)' }}>
-              <div className="d-flex justify-content-between align-items-start">
-                <div className="flex-grow-1">
-                  <h4 className="text-warning mb-3">
-                    <i className="fas fa-exclamation-triangle me-2"></i>
-                    Plateau Detected!
-                  </h4>
-                  <p className="text-white mb-3">
-                    Your weight hasn't changed significantly in {plateauAlert.duration} days.
-                  </p>
-                  
-                  <div className="mb-3">
-                    <h6 className="text-white mb-2">💪 How to Break Through:</h6>
-                    <ul className="text-white-50 mb-0">
-                      <li>Reduce daily calories by 100-200</li>
-                      <li>Increase workout intensity or frequency</li>
-                      <li>Try a different workout routine</li>
-                      <li>Check your food tracking accuracy</li>
-                    </ul>
-                  </div>
-
-                  {plateauAlert.recommendation && (
-                    <div className="alert alert-warning mt-3 mb-0">
-                      <strong>🤖 AI Suggestion:</strong> {plateauAlert.recommendation}
-                    </div>
-                  )}
-                </div>
-                <button 
-                  className="btn btn-sm btn-outline-light ms-3"
-                  onClick={dismissPlateau}
-                >
-                  <i className="fas fa-times"></i>
-                </button>
-              </div>
-            </div>
-          </div>
+        <div className="alert alert-warning glass-card mb-4">
+          <h5><i className="fas fa-exclamation-triangle me-2"></i>Plateau Detected</h5>
+          <p className="mb-0">{plateauAlert.message}</p>
         </div>
       )}
 
-      {/* Progress Overview */}
-      <div className="row mb-4">
-        <div className="col-md-4 mb-3">
-          <div className="glass-container stat-card">
-            <div className="stat-icon">
-              <i className="fas fa-bullseye"></i>
-            </div>
-            <div className="stat-content">
-              <h5 className="stat-label">Goal Progress</h5>
-              <h3 className="stat-value">{calculateProgress().toFixed(0)}%</h3>
-              <div className="progress mt-2" style={{ height: '8px' }}>
-                <div 
-                  className="progress-bar bg-success" 
-                  style={{ width: `${calculateProgress()}%` }}
-                ></div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="col-md-4 mb-3">
-          <div className="glass-container stat-card">
-            <div className="stat-icon">
-              <i className="fas fa-calendar-alt"></i>
-            </div>
-            <div className="stat-content">
-              <h5 className="stat-label">Days Remaining</h5>
-              <h3 className="stat-value">{calculateDaysRemaining()}</h3>
-              <small className="stat-change">Until target date</small>
-            </div>
-          </div>
-        </div>
-
-        <div className="col-md-4 mb-3">
-          <div className="glass-container stat-card">
-            <div className="stat-icon">
-              <i className="fas fa-weight"></i>
-            </div>
-            <div className="stat-content">
-              <h5 className="stat-label">Weight to Go</h5>
-              <h3 className="stat-value">
-                {Math.abs((userProfile.targetWeight || userProfile.weight || 70) - (userProfile.weight || 70)).toFixed(1)} kg
-              </h3>
-              <small className="stat-change">
-                {userProfile.goal === 'lose' ? 'to lose' : userProfile.goal === 'gain' ? 'to gain' : 'to maintain'}
-              </small>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Goals Form and Chart */}
-      <div className="row mb-4">
+      <div className="row">
+        {/* Goals Form */}
         <div className="col-md-6 mb-3">
           <div className="glass-container p-4">
-            <h3 className="text-white mb-4">Update Your Goals</h3>
+            <h3 className="text-white mb-4">Your Information</h3>
+            
             <form onSubmit={handleSubmit}>
-              <div className="mb-3">
-                <label className="form-label text-white">Current Weight (kg)</label>
-                <input 
-                  type="number"
-                  name="weight"
-                  value={formData.weight}
-                  onChange={handleChange}
-                  className="form-control glass-input"
-                  step="0.1"
-                />
+              <div className="row mb-3">
+                <div className="col-md-6">
+                  <label className="form-label text-white">Current Weight (kg)</label>
+                  <input 
+                    type="number"
+                    name="weight"
+                    value={formData.weight}
+                    onChange={handleChange}
+                    className="form-control glass-input"
+                    step="0.1"
+                    required
+                  />
+                </div>
+                <div className="col-md-6">
+                  <label className="form-label text-white">Height (cm)</label>
+                  <input 
+                    type="number"
+                    name="height"
+                    value={formData.height}
+                    onChange={handleChange}
+                    className="form-control glass-input"
+                    required
+                  />
+                </div>
               </div>
 
-              <div className="mb-3">
-                <label className="form-label text-white">Target Weight (kg)</label>
-                <input 
-                  type="number"
-                  name="targetWeight"
-                  value={formData.targetWeight}
-                  onChange={handleChange}
-                  className="form-control glass-input"
-                  step="0.1"
-                />
+              <div className="row mb-3">
+                <div className="col-md-6">
+                  <label className="form-label text-white">Age</label>
+                  <input 
+                    type="number"
+                    name="age"
+                    value={formData.age}
+                    onChange={handleChange}
+                    className="form-control glass-input"
+                    required
+                  />
+                </div>
+                <div className="col-md-6">
+                  <label className="form-label text-white">Gender</label>
+                  <select 
+                    name="gender"
+                    value={formData.gender}
+                    onChange={handleChange}
+                    className="form-select glass-input"
+                  >
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
               </div>
 
               <div className="mb-3">
@@ -463,9 +363,23 @@ const Goals = () => {
                   className="form-select glass-input"
                 >
                   <option value="lose">Lose Weight</option>
-                  <option value="maintain">Maintain Weight</option>
                   <option value="gain">Gain Weight</option>
+                  <option value="maintain">Maintain Weight</option>
+                  <option value="muscle">Build Muscle</option>
                 </select>
+              </div>
+
+              <div className="mb-3">
+                <label className="form-label text-white">Target Weight (kg)</label>
+                <input 
+                  type="number"
+                  name="targetWeight"
+                  value={formData.targetWeight}
+                  onChange={handleChange}
+                  className="form-control glass-input"
+                  step="0.1"
+                  required
+                />
               </div>
 
               <div className="mb-3">
@@ -512,15 +426,21 @@ const Goals = () => {
           </div>
         </div>
 
+        {/* Progress Chart */}
         <div className="col-md-6 mb-3">
           <div className="glass-container p-4">
             <h3 className="text-white mb-4">Progress Projection</h3>
-            {predictions && <ReactECharts option={getProgressChartOption()} style={{ height: '400px' }} />}
+            {predictions && (
+              <ReactECharts 
+                option={getProgressChartOption()} 
+                style={{ height: '400px' }} 
+              />
+            )}
           </div>
         </div>
       </div>
 
-      {/* CALORIE MODAL */}
+      {/* Calorie Recommendation Modal */}
       {showCalorieModal && calorieRecommendation && (
         <div className="modal show d-block" style={{ background: 'rgba(0,0,0,0.8)' }}>
           <div className="modal-dialog modal-lg modal-dialog-centered">
@@ -537,62 +457,54 @@ const Goals = () => {
                 ></button>
               </div>
               <div className="modal-body">
-                <p className="text-white mb-4">
-                  Based on your goals, I've calculated your optimal daily nutrition:
+                <p className="text-white-50 mb-4">
+                  Based on your profile and goals, we recommend the following daily intake:
                 </p>
-
-                <div className="row mb-4">
-                  <div className="col-12">
-                    <div className="p-4" style={{ background: 'rgba(102, 126, 234, 0.1)', borderRadius: '12px', border: '1px solid rgba(102, 126, 234, 0.3)' }}>
-                      <h3 className="text-white mb-3 text-center">
-                        {calorieRecommendation.calories} <small>calories/day</small>
-                      </h3>
-                      
-                      <div className="row">
-                        <div className="col-4 text-center">
-                          <div className="text-white-50">Protein</div>
-                          <div className="h4 text-white">{calorieRecommendation.protein}g</div>
-                        </div>
-                        <div className="col-4 text-center">
-                          <div className="text-white-50">Carbs</div>
-                          <div className="h4 text-white">{calorieRecommendation.carbs}g</div>
-                        </div>
-                        <div className="col-4 text-center">
-                          <div className="text-white-50">Fat</div>
-                          <div className="h4 text-white">{calorieRecommendation.fat}g</div>
-                        </div>
-                      </div>
+                <div className="row g-3 mb-4">
+                  <div className="col-6">
+                    <div className="recommendation-card glass-card p-3">
+                      <h5 className="text-white">Calories</h5>
+                      <h3 className="gradient-text">{calorieRecommendation.calories}</h3>
+                      <small className="text-white-50">per day</small>
+                    </div>
+                  </div>
+                  <div className="col-6">
+                    <div className="recommendation-card glass-card p-3">
+                      <h5 className="text-white">Protein</h5>
+                      <h3 className="gradient-text">{calorieRecommendation.protein}g</h3>
+                      <small className="text-white-50">per day</small>
+                    </div>
+                  </div>
+                  <div className="col-6">
+                    <div className="recommendation-card glass-card p-3">
+                      <h5 className="text-white">Carbs</h5>
+                      <h3 className="gradient-text">{calorieRecommendation.carbs}g</h3>
+                      <small className="text-white-50">per day</small>
+                    </div>
+                  </div>
+                  <div className="col-6">
+                    <div className="recommendation-card glass-card p-3">
+                      <h5 className="text-white">Fat</h5>
+                      <h3 className="gradient-text">{calorieRecommendation.fat}g</h3>
+                      <small className="text-white-50">per day</small>
                     </div>
                   </div>
                 </div>
-
-                <div className="alert alert-info" style={{ background: 'rgba(102, 126, 234, 0.1)', border: '1px solid rgba(102, 126, 234, 0.3)' }}>
-                  <div className="text-white">
-                    <strong>📈 Expected Results:</strong>
-                    <p className="mb-0 mt-2">{calorieRecommendation.recommendation}</p>
-                  </div>
-                </div>
-
-                {calorieRecommendation.weeklyWeightChange && (
-                  <div className="text-white-50 small">
-                    <i className="fas fa-info-circle me-2"></i>
-                    Expected change: {Math.abs(calorieRecommendation.weeklyWeightChange).toFixed(2)} kg/week
-                  </div>
-                )}
               </div>
               <div className="modal-footer border-0">
                 <button 
+                  type="button" 
                   className="btn btn-secondary" 
                   onClick={() => setShowCalorieModal(false)}
                 >
-                  Keep Current Settings
+                  Cancel
                 </button>
                 <button 
-                  className="btn btn-primary"
+                  type="button" 
+                  className="btn btn-primary" 
                   onClick={applyCalorieRecommendation}
                 >
-                  <i className="fas fa-check me-2"></i>
-                  Apply These Settings
+                  Apply Recommendations
                 </button>
               </div>
             </div>

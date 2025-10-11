@@ -1,4 +1,4 @@
-// client/src/context/AuthContext.js
+// client/src/context/AuthContext.js - KEEP USER LOGGED IN
 import React, { createContext, useState, useEffect } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../config/firebase';
@@ -11,10 +11,15 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    console.log('🔐 Setting up Firebase auth listener...');
+    
     // Listen to Firebase auth state changes
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      console.log('🔐 Auth state changed:', firebaseUser ? 'User logged in' : 'No user');
+      
       if (firebaseUser) {
         // User is signed in, get their profile from Firestore
+        console.log('📝 Fetching user profile for:', firebaseUser.uid);
         const profileResult = await firebaseAuthService.getUserProfile(firebaseUser.uid);
         
         if (profileResult.success) {
@@ -26,6 +31,7 @@ export const AuthProvider = ({ children }) => {
             photoURL: firebaseUser.photoURL,
             profile: userData.profile || {}
           });
+          console.log('✅ User profile loaded successfully');
         } else {
           // If profile doesn't exist, set basic user info
           setUser({
@@ -35,10 +41,12 @@ export const AuthProvider = ({ children }) => {
             photoURL: firebaseUser.photoURL,
             profile: {}
           });
+          console.log('⚠️ User profile not found, using basic info');
         }
       } else {
         // User is signed out
         setUser(null);
+        console.log('🚪 User signed out');
       }
       setLoading(false);
     });
@@ -51,6 +59,7 @@ export const AuthProvider = ({ children }) => {
     try {
       await firebaseAuthService.logout();
       setUser(null);
+      localStorage.removeItem('authToken');
     } catch (error) {
       console.error('Logout error:', error);
     }
