@@ -253,14 +253,14 @@
     };
 
     const getScoreBadgeColor = (score) => {
-      if (score >= 90) return 'success';
-      if (score >= 75) return 'warning';
+      if (score >= 70) return 'success';
+      if (score >= 45) return 'warning';
       return 'secondary';
     };
 
     const getScoreIcon = (score) => {
-      if (score >= 90) return '🟢';
-      if (score >= 75) return '🟡';
+      if (score >= 70) return '🟢';
+      if (score >= 45) return '🟡';
       return '🟠';
     };
 
@@ -439,23 +439,34 @@
                   <i className="fas fa-robot me-2"></i>
                   AI sorted {recipes.length} recipes into {clusteredRecipes.length} groups
                 </div>
-                <div className="btn-group">
+                <div className="d-flex gap-3">
                   <button
-                    className={`btn btn-sm ${viewMode === 'clustered' ? 'btn-primary' : 'btn-outline-light'}`}
+                    className={`btn ${viewMode === 'clustered' ? 'btn-primary' : 'btn-outline-light'}`}
                     onClick={() => setViewMode('clustered')}
+                    style={{ 
+                      padding: '0.75rem 1.5rem',
+                      fontSize: '1rem',
+                      fontWeight: '600',
+                      minWidth: '140px'
+                    }}
                   >
-                    <i className="fas fa-layer-group me-1"></i>AI Grouped
+                    <i className="fas fa-layer-group me-2"></i>AI Grouped
                   </button>
                   <button
-                    className={`btn btn-sm ${viewMode === 'flat' ? 'btn-primary' : 'btn-outline-light'}`}
+                    className={`btn ${viewMode === 'flat' ? 'btn-primary' : 'btn-outline-light'}`}
                     onClick={() => setViewMode('flat')}
+                    style={{ 
+                      padding: '0.75rem 1.5rem',
+                      fontSize: '1rem',
+                      fontWeight: '600',
+                      minWidth: '140px'
+                    }}
                   >
-                    <i className="fas fa-list me-1"></i>All Results
+                    <i className="fas fa-list me-2"></i>All Results
                   </button>
                 </div>
               </div>
             )}
-
             {/* AI CLUSTERED VIEW */}
             {viewMode === 'clustered' && clusteredRecipes ? (
               <div className="clustered-recipes">
