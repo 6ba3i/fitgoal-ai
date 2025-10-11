@@ -1,3 +1,4 @@
+// client/src/services/api.js - REVERT: Keep users logged in
 import axios from 'axios';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
@@ -27,10 +28,8 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('authToken');
-      window.location.href = '/login';
-    }
+    // DON'T auto-logout on 401 - just let the error propagate
+    // The components will handle it gracefully
     return Promise.reject(error);
   }
 );
