@@ -1,4 +1,4 @@
-// client/src/services/firebase.auth.service.js
+// client/src/services/firebase.auth.service.js - FIXED
 import { 
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -13,12 +13,38 @@ import {
   setDoc, 
   getDoc, 
   updateDoc,
-  collection,
   serverTimestamp 
 } from 'firebase/firestore';
 import { auth, googleProvider, db } from '../config/firebase';
+import { authService } from './auth.service'; // Import the API auth service
 
 class FirebaseAuthService {
+  // ✅ NEW METHOD: Exchange Firebase token for JWT
+  async exchangeFirebaseTokenForJWT(firebaseUser) {
+    try {
+      console.log('🔄 Exchanging Firebase token for JWT...');
+      
+      // Get Firebase ID token
+      const idToken = await firebaseUser.getIdToken();
+      
+      // Exchange it for JWT from your backend
+      const response = await authService.firebaseAuth(idToken);
+      
+      if (response.success && response.token) {
+        // Store JWT in localStorage for API calls
+        localStorage.setItem('authToken', response.token);
+        console.log('✅ JWT token stored in localStorage');
+        return response;
+      }
+      
+      console.error('❌ Failed to get JWT from backend');
+      return response;
+    } catch (error) {
+      console.error('❌ Token exchange error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
   // Register new user
   async register(email, password, displayName, profileData = {}) {
     try {
@@ -50,6 +76,9 @@ class FirebaseAuthService {
         }
       });
 
+      // ✅ CRITICAL FIX: Exchange Firebase token for JWT
+      await this.exchangeFirebaseTokenForJWT(user);
+
       return {
         success: true,
         user: {
@@ -73,6 +102,9 @@ class FirebaseAuthService {
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
+      
+      // ✅ CRITICAL FIX: Exchange Firebase token for JWT
+      await this.exchangeFirebaseTokenForJWT(user);
       
       // Get user profile from Firestore
       const userDoc = await getDoc(doc(db, 'users', user.uid));
@@ -101,6 +133,9 @@ class FirebaseAuthService {
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
+
+      // ✅ CRITICAL FIX: Exchange Firebase token for JWT
+      await this.exchangeFirebaseTokenForJWT(user);
 
       // Check if user document exists
       const userDoc = await getDoc(doc(db, 'users', user.uid));
@@ -173,6 +208,8 @@ class FirebaseAuthService {
   async logout() {
     try {
       await signOut(auth);
+      // ✅ IMPORTANT: Remove JWT token
+      localStorage.removeItem('authToken');
       return { success: true };
     } catch (error) {
       console.error('Logout error:', error);
@@ -210,23 +247,33 @@ class FirebaseAuthService {
     }
   }
 
-  // Get user profile from Firestore
+  // Get user profile
   async getUserProfile(uid) {
     try {
-      const userDoc = await getDoc(doc(db, 'users', uid));
-      
-      if (userDoc.exists()) {
-        return { success: true, data: userDoc.data() };
+      const docRef = doc(db, 'users', uid);
+      const docSnap = await getDoc(docRef);
+
+      if (docSnap.exists()) {
+        return {
+          success: true,
+          data: docSnap.data()
+        };
       } else {
-        return { success: false, error: 'User not found' };
+        return {
+          success: false,
+          error: 'User profile not found'
+        };
       }
     } catch (error) {
       console.error('Get profile error:', error);
-      return { success: false, error: error.message };
+      return {
+        success: false,
+        error: error.message
+      };
     }
   }
 
-  // Reset password
+  // Send password reset email
   async resetPassword(email) {
     try {
       await sendPasswordResetEmail(auth, email);
@@ -237,16 +284,16 @@ class FirebaseAuthService {
     }
   }
 
-  // Calculate macros (moved from backend)
-  calculateMacros(profile) {
-    const { weight, height, age, gender, activityLevel, goal } = profile;
-    
-    // Calculate BMR (Basal Metabolic Rate)
+  // Calculate macros based on user data
+  calculateMacros(userData) {
+    const { weight = 70, height = 170, age = 25, gender = 'male', activityLevel = 'moderate', goal = 'maintain' } = userData;
+
+    // Mifflin-St Jeor Equation for BMR
     let bmr;
     if (gender === 'male') {
-      bmr = 88.362 + (13.397 * weight) + (4.799 * height) - (5.677 * age);
+      bmr = 10 * weight + 6.25 * height - 5 * age + 5;
     } else {
-      bmr = 447.593 + (9.247 * weight) + (3.098 * height) - (4.330 * age);
+      bmr = 10 * weight + 6.25 * height - 5 * age - 161;
     }
 
     // Activity multipliers
@@ -258,29 +305,26 @@ class FirebaseAuthService {
       veryActive: 1.9
     };
 
-    // Calculate TDEE (Total Daily Energy Expenditure)
-    const tdee = bmr * activityMultipliers[activityLevel];
+    const tdee = bmr * (activityMultipliers[activityLevel] || 1.55);
 
-    // Adjust calories based on goal
-    let dailyCalories = tdee;
+    // Adjust for goal
+    let targetCalories = tdee;
     if (goal === 'lose') {
-      dailyCalories = tdee - 500; // 500 calorie deficit
+      targetCalories = tdee - 500;
     } else if (goal === 'gain') {
-      dailyCalories = tdee + 500; // 500 calorie surplus
+      targetCalories = tdee + 500;
     }
 
-    // Calculate macros (protein, carbs, fat)
-    const proteinRatio = goal === 'gain' ? 0.3 : 0.25;
-    const fatRatio = 0.25;
-    const carbRatio = 1 - proteinRatio - fatRatio;
+    // Calculate macros
+    const protein = Math.round((targetCalories * 0.30) / 4);
+    const carbs = Math.round((targetCalories * 0.40) / 4);
+    const fat = Math.round((targetCalories * 0.30) / 9);
 
     return {
-      dailyCalories: Math.round(dailyCalories),
-      dailyProtein: Math.round((dailyCalories * proteinRatio) / 4),
-      dailyCarbs: Math.round((dailyCalories * carbRatio) / 4),
-      dailyFat: Math.round((dailyCalories * fatRatio) / 9),
-      bmr: Math.round(bmr),
-      tdee: Math.round(tdee)
+      dailyCalories: Math.round(targetCalories),
+      dailyProtein: protein,
+      dailyCarbs: carbs,
+      dailyFat: fat
     };
   }
 }

@@ -9,41 +9,90 @@ class AIController {
       const userId = req.user.id;
       const { daysAhead = 30 } = req.body;
 
+      console.log('🔍 === PREDICT WEIGHT DEBUG ===');
+      console.log('User ID:', userId);
+      console.log('Days ahead:', daysAhead);
+
       // Get user's progress data from Firestore
       const progressData = await firebaseService.queryFirestore(
         'progress', 
-        'userId', 
+        'uid', 
         '==', 
         userId,
         90
       );
 
+      console.log('📊 Progress data count:', progressData.length);
+
       if (progressData.length < 2) {
+        console.log('❌ Not enough progress entries');
         return res.status(400).json({
           success: false,
           message: 'Not enough progress data for predictions. Please log at least 2 entries.'
         });
       }
 
+      console.log('📝 Raw progress data sample:', JSON.stringify(progressData.slice(0, 2), null, 2));
+
       // Sort by date (most recent first)
-      const sortedData = progressData.sort((a, b) => new Date(b.date) - new Date(a.date));
+      const sortedData = progressData.sort((a, b) => {
+        const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
+        const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
+        return dateB - dateA;
+      });
+
+      console.log('✅ Data sorted');
+      console.log('📝 Sorted data sample:', sortedData.slice(0, 2).map(d => ({
+        weight: d.weight,
+        date: d.date,
+        hasWeight: !!d.weight,
+        weightType: typeof d.weight
+      })));
+
+      // Validate that all entries have weight values
+      const entriesWithoutWeight = sortedData.filter(d => !d.weight || isNaN(parseFloat(d.weight)));
+      if (entriesWithoutWeight.length > 0) {
+        console.log('❌ Found entries without valid weight:', entriesWithoutWeight.length);
+        console.log('Invalid entries:', entriesWithoutWeight);
+        return res.status(400).json({
+          success: false,
+          message: `${entriesWithoutWeight.length} progress entries are missing valid weight data. Please ensure all entries have weight values.`
+        });
+      }
+
+      // Ensure all weights are numbers
+      const cleanedData = sortedData.map(entry => ({
+        ...entry,
+        weight: parseFloat(entry.weight),
+        date: entry.date?.toDate ? entry.date.toDate() : new Date(entry.date)
+      }));
+
+      console.log('🧹 Data cleaned, calling LinearRegressionService...');
 
       // Generate predictions
       const predictions = LinearRegressionService.predictWeight(
-        sortedData,
+        cleanedData,
         daysAhead
       );
+
+      console.log('✅ Predictions generated successfully');
+      console.log('📈 Predictions count:', predictions.predictions?.length);
 
       res.json({
         success: true,
         data: predictions
       });
     } catch (error) {
-      console.error('Predict weight error:', error);
+      console.error('❌ === PREDICT WEIGHT ERROR ===');
+      console.error('Error name:', error.name);
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+      
       res.status(500).json({
         success: false,
         message: 'Failed to generate weight predictions',
-        error: error.message
+        error: error.message,
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
       });
     }
   }
@@ -143,7 +192,7 @@ class AIController {
       const userProfile = await firebaseService.getFromFirestore('users', userId);
       const progressData = await firebaseService.queryFirestore(
         'progress', 
-        'userId', 
+        'uid', 
         '==', 
         userId,
         30
@@ -251,7 +300,7 @@ class AIController {
       const userProfile = await firebaseService.getFromFirestore('users', userId);
       const progressData = await firebaseService.queryFirestore(
         'progress', 
-        'userId', 
+        'uid', 
         '==', 
         userId,
         30
@@ -317,7 +366,7 @@ class AIController {
       const userProfile = await firebaseService.getFromFirestore('users', userId);
       const progressData = await firebaseService.queryFirestore(
         'progress', 
-        'userId', 
+        'uid', 
         '==', 
         userId,
         30
@@ -326,7 +375,7 @@ class AIController {
       // Get user goals from Firestore
       const goals = await firebaseService.queryFirestore(
         'goals', 
-        'userId', 
+        'uid', 
         '==', 
         userId,
         10
@@ -372,7 +421,7 @@ class AIController {
       const userProfile = await firebaseService.getFromFirestore('users', userId);
       const progressData = await firebaseService.queryFirestore(
         'progress', 
-        'userId', 
+        'uid', 
         '==', 
         userId,
         30
@@ -445,7 +494,7 @@ class AIController {
       const userProfile = await firebaseService.getFromFirestore('users', userId);
       const progressData = await firebaseService.queryFirestore(
         'progress', 
-        'userId', 
+        'uid', 
         '==', 
         userId,
         30
@@ -487,7 +536,7 @@ class AIController {
       // Get progress data from Firestore
       const progressData = await firebaseService.queryFirestore(
         'progress', 
-        'userId', 
+        'uid', 
         '==', 
         userId,
         60
