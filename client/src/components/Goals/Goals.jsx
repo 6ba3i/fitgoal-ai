@@ -1,9 +1,10 @@
-// client/src/components/Goals/Goals.jsx
-import React, { useState, useEffect, useContext } from 'react';
+// client/src/components/Goals/Goals.jsx - FIXED INFINITE LOOP
+import React, { useState, useEffect, useContext, useRef } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { toast } from 'react-toastify';
 import { UserContext } from '../../context/UserContext';
 import { AuthContext } from '../../context/AuthContext';
+import { aiService } from '../../services/ai.service';
 import './Goals.css';
 
 const Goals = () => {
@@ -11,7 +12,9 @@ const Goals = () => {
   const { userProfile, updateProfile } = useContext(UserContext);
   const [loading, setLoading] = useState(false);
   const [predictions, setPredictions] = useState(null);
-  const [adjustedGoals, setAdjustedGoals] = useState(null);
+  const [plateauAlert, setPlateauAlert] = useState(null);
+  const [calorieRecommendation, setCalorieRecommendation] = useState(null);
+  const [showCalorieModal, setShowCalorieModal] = useState(false);
   const [formData, setFormData] = useState({
     weight: 70,
     height: 170,
@@ -23,8 +26,14 @@ const Goals = () => {
     targetDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   });
 
+  // Use ref to prevent infinite loops
+  const initializedRef = useRef(false);
+
   useEffect(() => {
-    if (userProfile) {
+    if (userProfile && !initializedRef.current) {
+      initializedRef.current = true;
+      
+      // Initialize form data
       setFormData({
         weight: userProfile.weight || 70,
         height: userProfile.height || 170,
@@ -35,14 +44,29 @@ const Goals = () => {
         targetWeight: userProfile.targetWeight || userProfile.weight || 70,
         targetDate: userProfile.targetDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       });
+      
+      // Check for plateau (don't await - let it run in background)
+      checkForPlateau();
+      
+      // Generate predictions
       generatePredictions();
     }
-  }, [userProfile]);
+  }, [userProfile?.weight]); // Only re-run if weight changes
+
+  const checkForPlateau = async () => {
+    try {
+      const result = await aiService.detectPlateau();
+      if (result.success && result.data && result.data.plateauDetected) {
+        setPlateauAlert(result.data);
+      }
+    } catch (error) {
+      console.error('Plateau check failed:', error);
+    }
+  };
 
   const generatePredictions = () => {
     if (!userProfile) return;
     
-    // Simple weight prediction logic
     const currentWeight = userProfile.weight || 70;
     const targetWeight = userProfile.targetWeight || currentWeight;
     const daysToTarget = 90;
@@ -53,7 +77,7 @@ const Goals = () => {
     for (let i = 0; i <= daysToTarget; i += 7) {
       predictions.push({
         day: i,
-        weight: currentWeight + (dailyChange * i)
+        weight: parseFloat((currentWeight + (dailyChange * i)).toFixed(1))
       });
     }
     
@@ -78,66 +102,104 @@ const Goals = () => {
       const response = await updateProfile(formData);
       if (response.success) {
         toast.success('Goals updated successfully!');
-        generatePredictions();
+        
+        // Get AI recommendation (don't await - show modal when ready)
+        getCalorieRecommendation();
       } else {
         toast.error('Failed to update goals');
       }
     } catch (error) {
+      console.error('Goal update error:', error);
       toast.error('An error occurred');
-      console.error('Update goals error:', error);
     } finally {
       setLoading(false);
     }
   };
 
+  const getCalorieRecommendation = async () => {
+    try {
+      const result = await aiService.recommendCalories();
+      
+      if (result.success && result.data) {
+        setCalorieRecommendation(result.data);
+        setShowCalorieModal(true);
+      }
+    } catch (error) {
+      console.error('Calorie recommendation failed:', error);
+    }
+  };
+
+  const applyCalorieRecommendation = async () => {
+    if (!calorieRecommendation) return;
+    
+    try {
+      const updated = await updateProfile({
+        ...formData,
+        dailyCalories: calorieRecommendation.calories,
+        dailyProtein: calorieRecommendation.protein,
+        dailyCarbs: calorieRecommendation.carbs,
+        dailyFat: calorieRecommendation.fat
+      });
+
+      if (updated.success) {
+        toast.success('✓ Goals updated with AI recommendations!');
+        setShowCalorieModal(false);
+      }
+    } catch (error) {
+      toast.error('Failed to apply recommendations');
+    }
+  };
+
+  const dismissPlateau = () => {
+    setPlateauAlert(null);
+  };
+
   const calculateProgress = () => {
-    if (!userProfile) return 0;
-    
-    const current = userProfile.weight || 70;
-    const target = userProfile.targetWeight || current;
-    const start = userProfile.startingWeight || current;
-    
-    if (target === start) return 0;
-    
-    const progress = Math.abs((current - start) / (target - start)) * 100;
-    return Math.min(Math.round(progress), 100);
+    if (!userProfile || !userProfile.weight || !userProfile.targetWeight) return 0;
+    const total = Math.abs(userProfile.weight - userProfile.targetWeight);
+    const current = userProfile.weight;
+    const target = userProfile.targetWeight;
+    const progress = ((current - target) / total) * 100;
+    return Math.max(0, Math.min(100, 100 - Math.abs(progress)));
   };
 
   const calculateDaysRemaining = () => {
-    if (!userProfile?.targetDate) return 90;
-    
-    const target = new Date(userProfile.targetDate);
+    if (!userProfile?.targetDate) return 0;
     const today = new Date();
-    const days = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
-    
-    return Math.max(0, days);
+    const target = new Date(userProfile.targetDate);
+    const diff = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
+    return Math.max(0, diff);
   };
 
-  const getPredictionChartOption = () => {
-    if (!predictions || !predictions.predictions) return {};
+  const getProgressChartOption = () => {
+    if (!predictions) return {};
 
     return {
       tooltip: {
         trigger: 'axis',
-        formatter: '{b}: {c} kg',
         backgroundColor: 'rgba(0, 0, 0, 0.8)',
         textStyle: { color: '#fff' }
       },
+      grid: {
+        left: '3%',
+        right: '4%',
+        bottom: '3%',
+        containLabel: true
+      },
       xAxis: {
         type: 'category',
-        data: predictions.predictions.map((p, i) => `Week ${Math.floor(i)}`),
+        data: predictions.predictions.map((p) => `Day ${p.day}`),
         axisLabel: { color: '#fff' }
       },
       yAxis: {
         type: 'value',
         name: 'Weight (kg)',
-        axisLabel: { color: '#fff' },
-        nameTextStyle: { color: '#fff' }
+        nameTextStyle: { color: '#fff' },
+        axisLabel: { color: '#fff' }
       },
       series: [{
-        name: 'Predicted Weight',
+        data: predictions.predictions.map(p => p.weight),
         type: 'line',
-        data: predictions.predictions.map(p => p.weight.toFixed(1)),
         smooth: true,
         lineStyle: {
           color: '#667eea',
@@ -173,12 +235,26 @@ const Goals = () => {
     };
   };
 
+  // Early return for no user - prevent infinite loops
+  if (!user) {
+    return (
+      <div className="container goals-container">
+        <div className="text-center py-5">
+          <div className="spinner-border text-light" role="status">
+            <span className="visually-hidden">Loading...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Initial setup form if no profile
   if (!userProfile) {
     return (
       <div className="container goals-container">
         <div className="glass-container p-4">
           <h3 className="text-white mb-3">Set Your Goals</h3>
-          <p className="text-white-50">Please complete your profile first to set your fitness goals.</p>
+          <p className="text-white-50">Please complete your profile first.</p>
           <form onSubmit={handleSubmit}>
             <div className="row">
               <div className="col-md-6 mb-3">
@@ -254,6 +330,49 @@ const Goals = () => {
         <p className="text-white-50">Track and adjust your fitness objectives</p>
       </div>
 
+      {/* PLATEAU ALERT */}
+      {plateauAlert && (
+        <div className="row mb-4">
+          <div className="col-12">
+            <div className="glass-container p-4" style={{ background: 'rgba(255, 193, 7, 0.1)', border: '2px solid rgba(255, 193, 7, 0.5)' }}>
+              <div className="d-flex justify-content-between align-items-start">
+                <div className="flex-grow-1">
+                  <h4 className="text-warning mb-3">
+                    <i className="fas fa-exclamation-triangle me-2"></i>
+                    Plateau Detected!
+                  </h4>
+                  <p className="text-white mb-3">
+                    Your weight hasn't changed significantly in {plateauAlert.duration} days.
+                  </p>
+                  
+                  <div className="mb-3">
+                    <h6 className="text-white mb-2">💪 How to Break Through:</h6>
+                    <ul className="text-white-50 mb-0">
+                      <li>Reduce daily calories by 100-200</li>
+                      <li>Increase workout intensity or frequency</li>
+                      <li>Try a different workout routine</li>
+                      <li>Check your food tracking accuracy</li>
+                    </ul>
+                  </div>
+
+                  {plateauAlert.recommendation && (
+                    <div className="alert alert-warning mt-3 mb-0">
+                      <strong>🤖 AI Suggestion:</strong> {plateauAlert.recommendation}
+                    </div>
+                  )}
+                </div>
+                <button 
+                  className="btn btn-sm btn-outline-light ms-3"
+                  onClick={dismissPlateau}
+                >
+                  <i className="fas fa-times"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Progress Overview */}
       <div className="row mb-4">
         <div className="col-md-4 mb-3">
@@ -263,7 +382,7 @@ const Goals = () => {
             </div>
             <div className="stat-content">
               <h5 className="stat-label">Goal Progress</h5>
-              <h3 className="stat-value">{calculateProgress()}%</h3>
+              <h3 className="stat-value">{calculateProgress().toFixed(0)}%</h3>
               <div className="progress mt-2" style={{ height: '8px' }}>
                 <div 
                   className="progress-bar bg-success" 
@@ -305,7 +424,7 @@ const Goals = () => {
         </div>
       </div>
 
-      {/* Goals Form */}
+      {/* Goals Form and Chart */}
       <div className="row mb-4">
         <div className="col-md-6 mb-3">
           <div className="glass-container p-4">
@@ -376,8 +495,18 @@ const Goals = () => {
                 />
               </div>
 
-              <button type="submit" className="btn btn-primary" disabled={loading}>
-                {loading ? 'Updating...' : 'Update Goals'}
+              <button type="submit" className="btn btn-primary w-100" disabled={loading}>
+                {loading ? (
+                  <>
+                    <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    Calculating...
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-robot me-2"></i>
+                    Save & Get AI Recommendations
+                  </>
+                )}
               </button>
             </form>
           </div>
@@ -385,52 +514,91 @@ const Goals = () => {
 
         <div className="col-md-6 mb-3">
           <div className="glass-container p-4">
-            <h3 className="text-white mb-4">Weight Prediction</h3>
-            {predictions ? (
-              <ReactECharts option={getPredictionChartOption()} style={{ height: '400px' }} />
-            ) : (
-              <p className="text-white-50">Set your goals to see predictions</p>
-            )}
+            <h3 className="text-white mb-4">Progress Projection</h3>
+            {predictions && <ReactECharts option={getProgressChartOption()} style={{ height: '400px' }} />}
           </div>
         </div>
       </div>
 
-      {/* Goal Tips */}
-      <div className="glass-container p-4">
-        <h3 className="text-white mb-3">Goal Achievement Tips</h3>
-        <div className="row">
-          <div className="col-md-4">
-            <h5 className="text-white">
-              <i className="fas fa-utensils me-2"></i>Nutrition
-            </h5>
-            <ul className="text-white-50">
-              <li>Track your daily calories</li>
-              <li>Eat protein with every meal</li>
-              <li>Stay hydrated (8 glasses/day)</li>
-            </ul>
-          </div>
-          <div className="col-md-4">
-            <h5 className="text-white">
-              <i className="fas fa-dumbbell me-2"></i>Exercise
-            </h5>
-            <ul className="text-white-50">
-              <li>Exercise 3-5 times per week</li>
-              <li>Mix cardio and strength training</li>
-              <li>Progressive overload for gains</li>
-            </ul>
-          </div>
-          <div className="col-md-4">
-            <h5 className="text-white">
-              <i className="fas fa-bed me-2"></i>Recovery
-            </h5>
-            <ul className="text-white-50">
-              <li>Sleep 7-9 hours per night</li>
-              <li>Take rest days seriously</li>
-              <li>Manage stress levels</li>
-            </ul>
+      {/* CALORIE MODAL */}
+      {showCalorieModal && calorieRecommendation && (
+        <div className="modal show d-block" style={{ background: 'rgba(0,0,0,0.8)' }}>
+          <div className="modal-dialog modal-lg modal-dialog-centered">
+            <div className="modal-content glass-container">
+              <div className="modal-header border-0">
+                <h4 className="modal-title text-white">
+                  <i className="fas fa-robot me-2"></i>
+                  AI Calorie Calculator
+                </h4>
+                <button 
+                  type="button" 
+                  className="btn-close btn-close-white" 
+                  onClick={() => setShowCalorieModal(false)}
+                ></button>
+              </div>
+              <div className="modal-body">
+                <p className="text-white mb-4">
+                  Based on your goals, I've calculated your optimal daily nutrition:
+                </p>
+
+                <div className="row mb-4">
+                  <div className="col-12">
+                    <div className="p-4" style={{ background: 'rgba(102, 126, 234, 0.1)', borderRadius: '12px', border: '1px solid rgba(102, 126, 234, 0.3)' }}>
+                      <h3 className="text-white mb-3 text-center">
+                        {calorieRecommendation.calories} <small>calories/day</small>
+                      </h3>
+                      
+                      <div className="row">
+                        <div className="col-4 text-center">
+                          <div className="text-white-50">Protein</div>
+                          <div className="h4 text-white">{calorieRecommendation.protein}g</div>
+                        </div>
+                        <div className="col-4 text-center">
+                          <div className="text-white-50">Carbs</div>
+                          <div className="h4 text-white">{calorieRecommendation.carbs}g</div>
+                        </div>
+                        <div className="col-4 text-center">
+                          <div className="text-white-50">Fat</div>
+                          <div className="h4 text-white">{calorieRecommendation.fat}g</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="alert alert-info" style={{ background: 'rgba(102, 126, 234, 0.1)', border: '1px solid rgba(102, 126, 234, 0.3)' }}>
+                  <div className="text-white">
+                    <strong>📈 Expected Results:</strong>
+                    <p className="mb-0 mt-2">{calorieRecommendation.recommendation}</p>
+                  </div>
+                </div>
+
+                {calorieRecommendation.weeklyWeightChange && (
+                  <div className="text-white-50 small">
+                    <i className="fas fa-info-circle me-2"></i>
+                    Expected change: {Math.abs(calorieRecommendation.weeklyWeightChange).toFixed(2)} kg/week
+                  </div>
+                )}
+              </div>
+              <div className="modal-footer border-0">
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={() => setShowCalorieModal(false)}
+                >
+                  Keep Current Settings
+                </button>
+                <button 
+                  className="btn btn-primary"
+                  onClick={applyCalorieRecommendation}
+                >
+                  <i className="fas fa-check me-2"></i>
+                  Apply These Settings
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
